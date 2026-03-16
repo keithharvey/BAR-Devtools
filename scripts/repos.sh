@@ -88,7 +88,7 @@ clone_or_update_repo() {
     fi
   else
     info "  ${dir}: cloning ${url} (branch: ${branch})..."
-    git clone --branch "$branch" "$url" "$target" 2>&1 | sed 's/^/    /'
+    git clone --recurse-submodules --branch "$branch" "$url" "$target" 2>&1 | sed 's/^/    /'
   fi
 }
 

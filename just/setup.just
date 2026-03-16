@@ -7,13 +7,13 @@ REPOS_CONF   := DEVTOOLS_DIR / "repos.conf"
 REPOS_LOCAL  := DEVTOOLS_DIR / "repos.local.conf"
 
 # Full first-time setup: install deps, clone repos, build images
-init:
+init *args:
     #!/usr/bin/env bash
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
     source "$DEVTOOLS_DIR/scripts/repos.sh"
     source "$DEVTOOLS_DIR/scripts/setup.sh"
-    cmd_init
+    cmd_init {{args}}
 
 # Install system packages (docker, git, nodejs)
 deps:

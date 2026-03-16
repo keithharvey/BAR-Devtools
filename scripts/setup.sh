@@ -4,7 +4,9 @@
 # Source scripts/common.sh and scripts/repos.sh before this file.
 
 detect_distro() {
-  if command -v pacman &>/dev/null; then
+  if [[ "$OSTYPE" == darwin* ]]; then
+    echo "macos"
+  elif command -v pacman &>/dev/null; then
     echo "arch"
   elif command -v apt-get &>/dev/null; then
     echo "debian"
@@ -17,6 +19,7 @@ detect_distro() {
 
 pkg_install_cmd() {
   case "$(detect_distro)" in
+    macos)  echo "brew install" ;;
     arch)   echo "sudo pacman -S --needed" ;;
     debian) echo "sudo apt install -y" ;;
     fedora) echo "sudo dnf install -y" ;;
@@ -29,6 +32,10 @@ pkg_name() {
   local distro
   distro="$(detect_distro)"
   case "${distro}:${generic}" in
+    macos:docker)          echo "--cask docker" ;;
+    macos:docker-compose)  echo "" ;;
+    macos:git)             echo "git" ;;
+    macos:nodejs)          echo "node" ;;
     arch:docker)           echo "docker" ;;
     arch:docker-compose)   echo "docker-compose" ;;
     arch:git)              echo "git" ;;
@@ -61,9 +68,13 @@ check_docker() {
   if ! docker info &>/dev/null; then
     err "Docker daemon is not running or current user lacks permissions."
     echo ""
-    echo "  Start the daemon:   sudo systemctl start docker"
-    echo "  Enable on boot:     sudo systemctl enable docker"
-    echo "  Add yourself:       sudo usermod -aG docker \$USER  (then re-login)"
+    if [[ "$OSTYPE" == darwin* ]]; then
+      echo "  Open Docker Desktop to start the daemon."
+    else
+      echo "  Start the daemon:   sudo systemctl start docker"
+      echo "  Enable on boot:     sudo systemctl enable docker"
+      echo "  Add yourself:       sudo usermod -aG docker \$USER  (then re-login)"
+    fi
     echo ""
     return 1
   fi
@@ -87,9 +98,16 @@ check_ports() {
   local ports=(4000 "$pg_port" 8200 8201 8888)
   local conflict=0
   for port in "${ports[@]}"; do
-    if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
-      warn "Port ${port} is already in use"
-      conflict=1
+    if [[ "$OSTYPE" == darwin* ]]; then
+      if lsof -iTCP:"$port" -sTCP:LISTEN &>/dev/null; then
+        warn "Port ${port} is already in use"
+        conflict=1
+      fi
+    else
+      if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+        warn "Port ${port} is already in use"
+        conflict=1
+      fi
     fi
   done
   if [ "$conflict" -eq 1 ]; then
@@ -162,9 +180,13 @@ cmd_install_deps() {
     if ! docker info &>/dev/null; then
       warn "Docker is installed but the daemon isn't running or you lack permissions."
       echo ""
-      echo "  sudo systemctl start docker"
-      echo "  sudo systemctl enable docker"
-      echo "  sudo usermod -aG docker \$USER   # then re-login"
+      if [[ "$OSTYPE" == darwin* ]]; then
+        echo "  Open Docker Desktop to start the daemon."
+      else
+        echo "  sudo systemctl start docker"
+        echo "  sudo systemctl enable docker"
+        echo "  sudo usermod -aG docker \$USER   # then re-login"
+      fi
       echo ""
     fi
     return 0
@@ -190,15 +212,20 @@ cmd_install_deps() {
   echo ""
 
   if [[ " ${missing[*]} " == *" docker "* ]]; then
-    info "Enabling and starting Docker daemon..."
-    sudo systemctl enable --now docker 2>/dev/null || true
-
-    if ! groups | grep -qw docker; then
-      info "Adding $USER to the docker group (re-login required)..."
-      sudo usermod -aG docker "$USER"
-      warn "You need to log out and back in for Docker group membership to take effect."
-      warn "After re-login, run: just setup::init"
+    if [[ "$OSTYPE" == darwin* ]]; then
+      warn "Docker Desktop was installed. Open it to finish setup, then re-run: just setup::init"
       return 0
+    else
+      info "Enabling and starting Docker daemon..."
+      sudo systemctl enable --now docker 2>/dev/null || true
+
+      if ! groups | grep -qw docker; then
+        info "Adding $USER to the docker group (re-login required)..."
+        sudo usermod -aG docker "$USER"
+        warn "You need to log out and back in for Docker group membership to take effect."
+        warn "After re-login, run: just setup::init"
+        return 0
+      fi
     fi
   fi
 
@@ -206,6 +233,13 @@ cmd_install_deps() {
 }
 
 cmd_init() {
+  local clone_extras=0
+  for arg in "$@"; do
+    case "$arg" in
+      extras|all) clone_extras=1 ;;
+    esac
+  done
+
   echo -e "${BOLD}==========================================${NC}"
   echo -e "${BOLD}  BAR Dev Environment - First Time Setup${NC}"
   echo -e "${BOLD}==========================================${NC}"
@@ -233,10 +267,15 @@ cmd_init() {
   cmd_clone core
   echo ""
 
-  read -rp "Also clone extra repositories (game engine, SPADS source, infra)? [y/N] " extras
-  if [[ "$extras" =~ ^[Yy]$ ]]; then
+  if [ "$clone_extras" -eq 1 ]; then
     cmd_clone extra
     echo ""
+  else
+    read -rp "Also clone extra repositories (game engine, SPADS source, infra)? [y/N] " extras
+    if [[ "$extras" =~ ^[Yy]$ ]]; then
+      cmd_clone extra
+      echo ""
+    fi
   fi
 
   step "3/5  Building Docker images"
@@ -253,8 +292,14 @@ cmd_init() {
     echo ""
     read -rp "Build engine from source? [y/N] " build_engine
     if [[ "$build_engine" =~ ^[Yy]$ ]]; then
-      info "Building Recoil engine (this may take a while)..."
-      "$DEVTOOLS_DIR/RecoilEngine/docker-build-v2/build.sh" linux
+      local engine_arch
+      case "$(uname -m)" in
+        x86_64)       engine_arch="amd64" ;;
+        aarch64|arm64) engine_arch="arm64" ;;
+        *)            engine_arch="amd64" ;;
+      esac
+      info "Building Recoil engine (${engine_arch}-linux, this may take a while)..."
+      bash "$DEVTOOLS_DIR/RecoilEngine/docker-build-v2/build.sh" --arch "$engine_arch" linux
     fi
     echo ""
   else

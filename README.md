@@ -30,9 +30,10 @@ Once running:
 
 ## Requirements
 
-- **Linux** (Arch, Debian/Ubuntu, or Fedora)
+- **Linux** (Arch, Debian/Ubuntu, or Fedora) or **macOS**
 - **Docker** with Compose V2
 - **Git**
+- **Bash 4+** (Linux ships this; macOS needs `brew install bash`)
 - **[just](https://github.com/casey/just)** -- command runner
 
 ```bash
@@ -41,6 +42,9 @@ pacman -S just        # Arch
 dnf install just      # Fedora
 apt install just      # Debian/Ubuntu
 brew install just     # Homebrew
+
+# macOS only: install modern bash (macOS ships bash 3.2 which is too old)
+brew install bash
 ```
 
 Optional:
@@ -117,13 +121,22 @@ Available recipes:
 | `just docs::server` | Generate + start Hugo dev server |
 | `just docs::server-only` | Start Hugo dev server without regenerating |
 
-### Testing
+### BAR (Beyond All Reason)
 
 | Recipe | Description |
 |--------|-------------|
-| `just test::all` | Run all BAR tests (units + integrations) |
-| `just test::units` | Run busted unit tests in the BAR container |
-| `just test::integrations` | Run integration tests |
+| `just bar::lint` | Lint BAR Lua code (luacheck via lux) |
+| `just bar::fmt` | Format BAR Lua code (stylua via lux) |
+| `just bar::test` | Run busted unit tests in the BAR container |
+| `just bar::integrations` | Run headless integration tests (x86-64 only) |
+| `just bar::all` | Run all BAR tests (units + integrations) |
+| `just bar::setup-hooks` | Install git pre-commit hook in the BAR repo |
+
+### Teiserver
+
+| Recipe | Description |
+|--------|-------------|
+| `just tei::mix` | Run teiserver mix tests |
 
 ## Using Your Own Forks
 

@@ -22,4 +22,11 @@ build *args:
         echo "    just engine::build --help"
         exit 1
     fi
-    exec "$build_script" {{args}}
+    arch_args=""
+    if [[ ! " {{args}} " =~ " --arch " ]]; then
+        case "$(uname -m)" in
+            x86_64)        arch_args="--arch amd64" ;;
+            aarch64|arm64) arch_args="--arch arm64" ;;
+        esac
+    fi
+    exec bash "$build_script" $arch_args {{args}}
