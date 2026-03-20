@@ -10,6 +10,7 @@ build-lde:
     #!/usr/bin/env bash
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
+    enter_distrobox
     if [ ! -d "$LDE_DIR" ]; then
         err "lua-doc-extractor not found at $LDE_DIR"
         info "Clone it first: just repos::clone extra"
@@ -24,8 +25,13 @@ library *flags: build-lde
     #!/usr/bin/env bash
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
-    LDE="node $LDE_DIR/dist/src/cli.js"
     DEST="$RECOIL_DIR/rts/Lua/library/generated"
+
+    info "Cleaning stale generated files..."
+    clean_dir "$DEST"
+
+    enter_distrobox
+    LDE="node $LDE_DIR/dist/src/cli.js"
 
     info "Extracting Lua docs..."
     $LDE \

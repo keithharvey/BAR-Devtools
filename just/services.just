@@ -80,24 +80,7 @@ up *args:
     echo ""
 
     if [ "$start_lobby" -eq 1 ]; then
-        if [ ! -d "$LOBBY_DIR" ]; then
-            err "bar-lobby directory not found. Run 'just repos::clone' first."
-            exit 1
-        fi
-        if ! command -v node &>/dev/null; then
-            err "Node.js is required for bar-lobby. Run 'just setup::deps'."
-            exit 1
-        fi
-        info "Installing bar-lobby dependencies..."
-        cd "$LOBBY_DIR"
-        npm install
-        info "Starting bar-lobby dev server..."
-        echo "  (Ctrl+C to stop the lobby; Docker services keep running)"
-        echo ""
-        __NV_PRIME_RENDER_OFFLOAD=1 \
-        __GLX_VENDOR_LIBRARY_NAME=nvidia \
-        LC_CTYPE=C \
-        npm start -- -- --no-sandbox
+        just services::lobby
     fi
 
 # Stop all services
@@ -125,6 +108,7 @@ lobby:
     #!/usr/bin/env bash
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
+    enter_distrobox
     if [ ! -d "$LOBBY_DIR" ]; then
         err "bar-lobby directory not found at: $LOBBY_DIR"
         err "Run 'just repos::clone' to clone repositories first."

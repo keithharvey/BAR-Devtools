@@ -5,17 +5,27 @@ RECOIL_DIR   := DEVTOOLS_DIR / "RecoilEngine"
 COMPOSE_FILE := DEVTOOLS_DIR / "docker-compose.dev.yml"
 COMPOSE      := "docker compose -f " + COMPOSE_FILE
 
-# Generate Lua API pages (full pipeline: extract -> JSON -> markdown)
-generate:
-    {{COMPOSE}} run --rm recoil-docs lua_pages
-
-# Generate everything then start Hugo dev server
+# Generate lua library locally, then build docs and start Hugo dev server
 server:
-    {{COMPOSE}} run --rm --service-ports recoil-docs server_full -- --bind 0.0.0.0
+    just lua::library
+    {{COMPOSE}} run --rm --service-ports recoil-docs server_dev -- --bind 0.0.0.0
+
+# Generate lua library locally, then build Lua API pages only
+generate:
+    just lua::library
+    {{COMPOSE}} run --rm recoil-docs lua_pages_only
 
 # Start Hugo dev server without regenerating
 server-only:
     {{COMPOSE}} run --rm --service-ports recoil-docs server -- --bind 0.0.0.0
+
+# Full pipeline inside Docker (uses npm lua-doc-extractor, for CI-like builds)
+generate-full:
+    {{COMPOSE}} run --rm recoil-docs lua_pages
+
+# Full pipeline inside Docker then serve (uses npm lua-doc-extractor)
+server-full:
+    {{COMPOSE}} run --rm --service-ports recoil-docs server_full -- --bind 0.0.0.0
 
 # Rebuild the docs container image
 build:
