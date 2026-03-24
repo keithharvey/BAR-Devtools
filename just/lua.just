@@ -20,15 +20,45 @@ build-lde:
     npm ci && npm run build
     ok "lua-doc-extractor built"
 
-# Generate Lua library from RecoilEngine sources, copy into BAR submodule
+# Resolve the lux-installed path for recoil-lua-library
+[private]
+recoil-lib-path:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    match=$(find "$BAR_DIR/.lux/5.1" -maxdepth 2 -name 'src' -path '*recoil-lua-library*' -type d 2>/dev/null | head -1)
+    if [ -z "$match" ]; then
+        echo "$BAR_DIR/.lux/5.1/recoil-lua-library" # fallback before first sync
+    else
+        dirname "$match"
+    fi
+
+# Create symlink from BAR/recoil-lua-library -> lux-installed package
+link: recoil-lib-path
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    target=$(just lua::recoil-lib-path)
+    link="$BAR_DIR/recoil-lua-library"
+    if [ -L "$link" ]; then
+        rm "$link"
+    elif [ -e "$link" ]; then
+        warn "$link exists and is not a symlink, skipping"
+        exit 0
+    fi
+    ln -s "$target" "$link"
+    ok "Symlinked $link -> $target"
+
+# Generate Lua library from RecoilEngine sources, copy into lux-installed path
 library *flags: build-lde
     #!/usr/bin/env bash
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
-    DEST="$RECOIL_DIR/rts/Lua/library/generated"
+    LIB="$RECOIL_DIR/rts/Lua/library"
+    DEST="$LIB/generated"
 
     info "Cleaning stale generated files..."
     clean_dir "$DEST"
+    clean_dir "$LIB/RecoilEngine"
 
     enter_distrobox
     LDE="node $LDE_DIR/dist/src/cli.js"
@@ -40,14 +70,19 @@ library *flags: build-lde
         --repo "https://github.com/beyond-all-reason/RecoilEngine/blob/master" \
         {{flags}}
 
-    if [ -d "$BAR_DIR/recoil-lua-library/library" ]; then
-        info "Copying into BAR submodule..."
-        clean_dir "$BAR_DIR/recoil-lua-library/library"
-        mkdir -p "$BAR_DIR/recoil-lua-library/library"
-        cp -r "$RECOIL_DIR/rts/Lua/library/"* \
-              "$BAR_DIR/recoil-lua-library/library/"
-        ok "Updated $BAR_DIR/recoil-lua-library/library/"
-        echo "  Run 'just lua::reset' to reset Recoil library and BAR recoil-lua-library."
+    LUX_LIB=$(just lua::recoil-lib-path 2>/dev/null || echo "")
+    if [ -n "$LUX_LIB" ] && [ -d "$LUX_LIB" ]; then
+        info "Copying into lux-installed recoil-lua-library..."
+        clean_dir "$LUX_LIB/src"
+        mkdir -p "$LUX_LIB/src"
+        cp -r "$RECOIL_DIR/rts/Lua/library/"* "$LUX_LIB/src/"
+        ok "Updated $LUX_LIB/src/"
+        echo "  Run 'just lua::reset' to restore the published version."
+    else
+        info "Copying into BAR working tree..."
+        mkdir -p "$BAR_DIR/recoil-lua-library/src"
+        cp -r "$RECOIL_DIR/rts/Lua/library/"* "$BAR_DIR/recoil-lua-library/src/"
+        ok "Updated $BAR_DIR/recoil-lua-library/src/"
     fi
 
 # Generate library then restart LuaLS so the editor picks up changes
@@ -55,11 +90,7 @@ library-reload *flags: (library flags)
     -pkill -f lua-language-server
     @echo "LuaLS restarting (editor extension will respawn it)"
 
-# Reset generated Lua library files
-#   TODO: This is a workaround for the fact that these CI artifacts are in source control and
-#         generally developers don't want generated output dirtying PRs that only change inputs.
-#         Prefer recoil-lua-library NOT be a submodule but a local build artifact produced by our
-#         scripting layer, with CI building and publishing the package without committing it back.
+# Reset generated Lua library files and restore lux-installed version
 reset:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -68,10 +99,8 @@ reset:
     cd "$RECOIL_DIR"
     git checkout -- rts/Lua/library/
     git clean -fd rts/Lua/library/
-    if [ -d "$BAR_DIR/recoil-lua-library" ]; then
-        info "Resetting recoil-lua-library submodule in BAR..."
-        cd "$BAR_DIR"
-        git submodule update --init --force recoil-lua-library
-        git -C recoil-lua-library clean -fd
-    fi
+    info "Restoring lux-installed recoil-lua-library..."
+    cd "$BAR_DIR"
+    lx sync
+    just lua::link
     ok "Lua library reset."

@@ -5,6 +5,11 @@ COMPOSE_FILE        := DEVTOOLS_DIR / "docker-compose.dev.yml"
 COMPOSE             := "docker compose -f " + COMPOSE_FILE
 BAR_DIR             := DEVTOOLS_DIR / "Beyond-All-Reason"
 INTEGRATION_COMPOSE := "docker compose -f " + BAR_DIR / "tools" / "headless_testing" / "docker-compose.yml"
+CODEMOD_DIR         := DEVTOOLS_DIR / "bar-lua-codemod"
+CODEMOD_BIN         := CODEMOD_DIR / "target" / "release" / "bar-lua-codemod"
+LUALS_VERSION       := "3.17.1"
+LUALS_DIR           := DEVTOOLS_DIR / ".devtools" / "lua-language-server"
+LUALS_BIN           := LUALS_DIR / "bin" / "lua-language-server"
 
 [private]
 require-bar:
@@ -15,13 +20,41 @@ require-bar:
         exit 1
     fi
 
+[private]
+require-luals:
+    #!/usr/bin/env bash
+    [ -x "{{LUALS_BIN}}" ] && exit 0
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    step "lua-language-server not found, downloading v{{LUALS_VERSION}}..."
+    mkdir -p "{{LUALS_DIR}}"
+    ARCH="$(uname -m)"
+    case "$ARCH" in
+        x86_64)  PLAT="linux-x64" ;;
+        aarch64) PLAT="linux-arm64" ;;
+        *)       err "Unsupported arch: $ARCH"; exit 1 ;;
+    esac
+    curl -fsSL "https://github.com/LuaLS/lua-language-server/releases/download/${LUALS_VERSION}/lua-language-server-${LUALS_VERSION}-${PLAT}.tar.gz" \
+        | tar xz -C "{{LUALS_DIR}}"
+    ok "Downloaded lua-language-server v{{LUALS_VERSION}}"
+
+# Type-check BAR Lua code (LuaLS diagnostics)
+check *args: require-bar require-luals
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    step "Running LuaLS type check..."
+    cd "$BAR_DIR"
+    "{{LUALS_BIN}}" --check=. --checklevel=Warning --logpath=/tmp/luals-check {{args}}
+    ok "Type check complete"
+
 # Lint BAR Lua code (luacheck via lux)
 lint *args: require-bar
     #!/usr/bin/env bash
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
     enter_distrobox
-    (cd "$BAR_DIR" && lx lint {{args}})
+    (cd "$BAR_DIR" && lx --lua-version 5.1 lint {{args}})
 
 # Format BAR Lua code (stylua via lux)
 fmt *args: require-bar
@@ -29,7 +62,7 @@ fmt *args: require-bar
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
     enter_distrobox
-    (cd "$BAR_DIR" && lx fmt {{args}})
+    (cd "$BAR_DIR" && lx --lua-version 5.1 exec stylua . {{args}})
 
 # Run busted unit tests
 units *args: require-bar
@@ -37,7 +70,7 @@ units *args: require-bar
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
     enter_distrobox
-    (cd "$BAR_DIR" && lx test {{args}})
+    (cd "$BAR_DIR" && lx --lua-version 5.1 test {{args}})
 
 # Drop into an interactive test shell (busted on PATH)
 test-shell: require-bar
@@ -48,9 +81,9 @@ test-shell: require-bar
     echo -e "${GREEN}[ok]${NC}    Entering lx test shell (busted is available)."
     echo -e "${GREEN}[ok]${NC}    Type 'exit' to return."
     if [ -n "${DEVTOOLS_DISTROBOX:-}" ] && [ -z "${_DEVTOOLS_IN_DISTROBOX:-}" ] && [ ! -f /run/.containerenv ]; then
-        exec script -qec "distrobox enter '${DEVTOOLS_DISTROBOX}' -- lx shell --test --no-loader" /dev/null
+        exec script -qec "distrobox enter '${DEVTOOLS_DISTROBOX}' -- lx --lua-version 5.1 shell --test --no-loader" /dev/null
     fi
-    exec lx shell --test --no-loader
+    exec lx --lua-version 5.1 shell --test --no-loader
 
 # Run headless integration tests (x86-64 only)
 integrations *args: require-bar
@@ -63,7 +96,62 @@ integrations *args: require-bar
     {{INTEGRATION_COMPOSE}} up --build --abort-on-container-exit {{args}}
 
 # Run all BAR tests (unit + integrations)
-all: units integrations
+test: units integrations
+
+# Build bar-lua-codemod binary (requires cargo or rust-dev distrobox)
+codemod-build:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    step "Building bar-lua-codemod..."
+    bash "$DEVTOOLS_DIR/scripts/codemod-cargo.sh" build --release
+    ok "Built: {{CODEMOD_BIN}}"
+
+# Run bar-lua-codemod unit tests
+codemod-test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    step "Testing bar-lua-codemod..."
+    bash "$DEVTOOLS_DIR/scripts/codemod-cargo.sh" test
+    ok "All tests passed"
+
+[private]
+require-codemod:
+    #!/usr/bin/env bash
+    [ -x "{{CODEMOD_BIN}}" ] && exit 0
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    step "bar-lua-codemod not found, building..."
+    bash "$DEVTOOLS_DIR/scripts/codemod-cargo.sh" build --release
+    ok "Built bar-lua-codemod"
+
+# Run codemod transforms + stylua (contributors run after rebasing)
+fmt-mig: require-bar require-codemod
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    enter_distrobox
+    step "bracket-to-dot transform..."
+    "{{CODEMOD_BIN}}" bracket-to-dot --path "$BAR_DIR" --exclude common/luaUtilities
+    step "rename-aliases transform..."
+    "{{CODEMOD_BIN}}" rename-aliases --path "$BAR_DIR" --exclude common/luaUtilities
+    step "detach-bar-modules transform..."
+    "{{CODEMOD_BIN}}" detach-bar-modules --path "$BAR_DIR" --exclude common/luaUtilities
+    step "spring-split transform..."
+    "{{CODEMOD_BIN}}" spring-split --path "$BAR_DIR" --library "$BAR_DIR/recoil-lua-library/src" --exclude common/luaUtilities
+    step "stylua..."
+    (cd "$BAR_DIR" && lx --lua-version 5.1 exec stylua .)
+    ok "fmt-mig complete"
+
+[private]
+require-library:
+    just lua::library
+    just lua::link
+
+# Regenerate fmt, mig-*, and mig branches from origin/master
+fmt-mig-generate *args: require-bar require-codemod require-library
+    bash "$DEVTOOLS_DIR/scripts/generate-branches.sh" {{args}}
 
 # Install git pre-commit hook in the BAR repo
 setup-hooks:
@@ -80,10 +168,14 @@ setup-hooks:
     printf '%s\n' \
         '#!/usr/bin/env bash' \
         'set -e' \
-        'echo "[pre-commit] Running lx fmt..."' \
-        'lx fmt' \
+        'echo "[pre-commit] Running stylua..."' \
+        'lx --lua-version 5.1 exec stylua .' \
         'echo "[pre-commit] Running lx lint..."' \
-        'lx lint' \
+        'lx --lua-version 5.1 lint' \
         > "$hook"
     chmod +x "$hook"
     ok "Installed pre-commit hook at $hook"
+    if [ -f "$BAR_DIR/.git-blame-ignore-revs" ]; then
+        git -C "$BAR_DIR" config blame.ignoreRevsFile .git-blame-ignore-revs
+        ok "Configured git blame to ignore formatting commits"
+    fi
