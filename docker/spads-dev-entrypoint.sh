@@ -19,6 +19,12 @@ mkdir -p /opt/spads/var/plugins
 mkdir -p /opt/spads/var/spring
 mkdir -p /opt/spads/var/spads_dev/log
 
+# lobby-repo plugin dirs: *.conf -> etc, code/help -> var/plugins
+for d in /spads_plugins/*/; do
+  cp "$d"*.conf /opt/spads/etc/ 2>/dev/null || true
+  cp "$d"*.py "$d"*.pm "$d"*.dat /opt/spads/var/plugins/ 2>/dev/null || true
+done
+
 pidfiles=$(find /opt/spads/var -name "*.pid" -type f 2>/dev/null)
 if [ -n "$pidfiles" ]; then
   echo "Cleaning stale pid files"
