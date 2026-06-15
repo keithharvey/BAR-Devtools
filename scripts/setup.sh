@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Expects DEVTOOLS_DIR, COMPOSE, REPOS_CONF (exported by Justfile); source common.sh + repos.sh first.
 
+source "$DEVTOOLS_DIR/scripts/wsl.sh"
+
 detect_distro() {
   if command -v pacman &>/dev/null; then
     echo "arch"
@@ -202,73 +204,6 @@ ensure_wsl_setup() {
   ok "WSL2 environment ready (systemd active, / is a shared mount)"
   wsl_virtiofs_hint
   echo ""
-}
-
-# True if $1 is a real Windows Python, not the Microsoft Store stub under WindowsApps.
-_is_real_windows_python() {
-  local p="$1"
-  [ -n "$p" ] || return 1
-  case "$p" in
-    *WindowsApps*python.exe|*WindowsApps*py.exe) return 1 ;;
-  esac
-  return 0
-}
-
-# Install Python on the Windows host via winget. WSL-only; skips if a real Windows Python exists.
-ensure_windows_python() {
-  is_wsl || return 0
-
-  local py_path python_path
-  py_path="$(command -v py.exe 2>/dev/null || true)"
-  python_path="$(command -v python.exe 2>/dev/null || true)"
-
-  if _is_real_windows_python "$py_path"; then
-    ok "Windows Python already installed: $py_path"
-    ensure_bar_launch_python_persisted
-    return 0
-  fi
-  if _is_real_windows_python "$python_path"; then
-    ok "Windows Python already installed: $python_path"
-    ensure_bar_launch_python_persisted
-    return 0
-  fi
-
-  if [ -n "$python_path" ]; then
-    info "Detected Microsoft Store python.exe stub at $python_path -- not a real install."
-  fi
-
-  if ! command -v winget.exe &>/dev/null; then
-    warn "winget.exe not found on the Windows PATH -- can't auto-install Python."
-    warn "Install manually from https://www.python.org/downloads/ and re-open the WSL shell."
-    return 0
-  fi
-
-  echo ""
-  info "The Windows-side cold-copy mirror needs py.exe / python.exe on Windows."
-  read -rp "Install Python 3.12 via winget on Windows now? [Y/n] " ans
-  if [[ "$ans" =~ ^[Nn]$ ]]; then
-    info "Skipped. Run later: winget install Python.Python.3.12"
-    return 0
-  fi
-
-  step "Installing Python 3.12 on Windows via winget..."
-  winget.exe install Python.Python.3.12 \
-    --silent \
-    --accept-source-agreements \
-    --accept-package-agreements \
-    || warn "winget exited non-zero. Check the output above; Python may still be installed."
-
-  hash -r
-  py_path="$(command -v py.exe 2>/dev/null || true)"
-  python_path="$(command -v python.exe 2>/dev/null || true)"
-  if _is_real_windows_python "$py_path" || _is_real_windows_python "$python_path"; then
-    ok "Windows Python installed."
-    ensure_bar_launch_python_persisted
-  else
-    warn "winget finished but a real py.exe / python.exe still isn't on PATH."
-    warn "Open a new WSL shell (Windows PATH is re-imported at WSL shell start)."
-    warn "If it still isn't visible, check: winget list Python.Python.3.12 (from cmd/PowerShell)."
-  fi
 }
 
 # Install distrobox from upstream; need >= 1.8.2.3 for the chpasswd fix against shadow-utils 4.13+.
@@ -665,61 +600,6 @@ ensure_bar_appimage_path_set() {
   fi
 }
 
-# BAR_DATA_DIR: the engine's data dir. WSL2 mirrors sources into it; Linux symlinks into it.
-
-bar_data_dir_get() {
-  local env_file="$DEVTOOLS_DIR/.env"
-  if [ -f "$env_file" ]; then
-    local val
-    val="$(grep -E '^BAR_DATA_DIR=' "$env_file" 2>/dev/null | tail -n1 | cut -d= -f2-)"
-    if [ -n "$val" ]; then
-      val="${val%\"}"; val="${val#\"}"
-      echo "$val"
-      return 0
-    fi
-  fi
-  echo "${BAR_DATA_DIR:-}"
-}
-
-_to_windows_path() {
-  local p="$1"
-  if command -v wslpath &>/dev/null; then
-    wslpath -w "$p" 2>/dev/null || echo "$p"
-  else
-    echo "$p"
-  fi
-}
-
-_to_wsl_path() {
-  local p="$1"
-  if command -v wslpath &>/dev/null; then
-    wslpath -u "$p" 2>/dev/null || echo "$p"
-  else
-    echo "$p"
-  fi
-}
-
-# Default to the BAR launcher's own data dir: spring's archive scanner won't traverse junctions.
-_default_bar_data_dir() {
-  is_wsl || return 0
-  command -v cmd.exe &>/dev/null || return 0
-  command -v wslpath &>/dev/null || return 0
-  local localappdata
-  localappdata="$(cmd.exe /c 'echo %LOCALAPPDATA%' 2>/dev/null | tr -d '\r\n')"
-  [ -z "$localappdata" ] && return 0
-  case "$localappdata" in
-    *%LOCALAPPDATA%*) return 0 ;;
-  esac
-  local wsl_path
-  wsl_path="$(wslpath -u "$localappdata" 2>/dev/null)" || return 0
-  local launcher_data="$wsl_path/Programs/Beyond-All-Reason/data"
-  if [ -d "$launcher_data" ]; then
-    echo "$launcher_data"
-  else
-    echo "$wsl_path/BAR-DevSync"
-  fi
-}
-
 # Idempotently set `<key> = <value>` in a springsettings.cfg. The engine rewrites the cfg on
 # shutdown, so callers should re-apply on every launch.
 springsettings_set() {
@@ -756,202 +636,6 @@ ensure_devmode_marker() {
   else
     warn "Couldn't create $marker (continuing without dev mode)"
   fi
-}
-
-# Persist BAR_DATA_DIR in WSL path form; the Windows shim converts it. WSL-only.
-ensure_bar_data_dir() {
-  is_wsl || return 0
-
-  local env_file="$DEVTOOLS_DIR/.env"
-  touch "$env_file"
-
-  local current
-  current="$(bar_data_dir_get)"
-  if [ -n "$current" ]; then
-    info "BAR_DATA_DIR already set: $current"
-  else
-    echo ""
-    info "WSL2 detected. Linux↔Windows symlinks aren't fast enough for runtime"
-    info "game-Lua reads, so BAR-Devtools mirrors your Devtools checkouts to a"
-    info "Windows-side data directory the engine reads from. The recommended"
-    info "target is the BAR launcher's own data dir -- spring then sees our"
-    info "synced bar/chobby/engine alongside its own cache/demos/settings"
-    info "without any junctions in the path."
-    echo ""
-    echo "  Recommended:  %LOCALAPPDATA%\\Programs\\Beyond-All-Reason\\data\\"
-    echo "                (the data dir Beyond-All-Reason.exe already writes to)"
-    echo "  Avoid:        %USERPROFILE%\\Documents\\... (OneDrive redirection)"
-    echo "                %TEMP%\\...                  (cleared on reboot)"
-    echo "                \\\\wsl\$\\<distro>\\...        (defeats the whole point)"
-    echo ""
-    local default_path
-    default_path="$(_default_bar_data_dir)"
-
-    local response
-    if [ -t 0 ]; then
-      if [ -n "$default_path" ]; then
-        read -rp "BAR data dir [$(_to_windows_path "$default_path")]: " response
-      else
-        read -rp "BAR data dir (WSL path or Windows path): " response
-      fi
-    else
-      response=""
-    fi
-
-    if [ -z "$response" ]; then
-      if [ -z "$default_path" ]; then
-        err "No BAR_DATA_DIR provided and couldn't compute a default (cmd.exe / wslpath unavailable)."
-        info "Edit BAR-Devtools/.env directly:  BAR_DATA_DIR=/mnt/c/Users/<you>/AppData/Local/BAR-DevSync"
-        return 1
-      fi
-      current="$default_path"
-    else
-      case "$response" in
-        /mnt/*|/home/*|/root/*) current="${response/#\~/$HOME}" ;;
-        *)
-          local converted
-          converted="$(_to_wsl_path "$response")"
-          if [ -z "$converted" ] || [ "$converted" = "$response" ]; then
-            warn "Couldn't convert '$response' via wslpath -- saving as-is."
-            current="$response"
-          else
-            current="$converted"
-          fi
-          ;;
-      esac
-    fi
-
-    echo "BAR_DATA_DIR=$current" >> "$env_file"
-    ok "Added BAR_DATA_DIR=$current to .env"
-  fi
-
-  local sub
-  for sub in engine/local-build games/Beyond-All-Reason.sdd games/BYAR-Chobby.sdd bin; do
-    mkdir -p "$current/$sub" 2>/dev/null || {
-      err "Couldn't mkdir $current/$sub -- check that the path is reachable from WSL."
-      return 1
-    }
-  done
-
-  ensure_devmode_marker "$current"
-
-  ok "BAR data dir ready: $current"
-
-  export BAR_DATA_DIR="$current"
-}
-
-# Persist BAR_LAUNCH_PYTHON=<py.exe path> to .env. WSL-only.
-ensure_bar_launch_python_persisted() {
-  is_wsl || return 0
-  local env_file="$DEVTOOLS_DIR/.env"
-  touch "$env_file"
-
-  if grep -q "^BAR_LAUNCH_PYTHON=" "$env_file" 2>/dev/null; then
-    return 0
-  fi
-
-  local py_path
-  py_path="$(command -v py.exe 2>/dev/null || true)"
-  if ! _is_real_windows_python "$py_path"; then
-    py_path="$(command -v python.exe 2>/dev/null || true)"
-  fi
-  if ! _is_real_windows_python "$py_path"; then
-    return 0
-  fi
-
-  local win_py
-  win_py="$(_to_windows_path "$py_path")"
-  # Single-quote: just's dotenv parser would treat backslashes in C:\... as escapes.
-  echo "BAR_LAUNCH_PYTHON='$win_py'" >> "$env_file"
-  ok "Added BAR_LAUNCH_PYTHON=$win_py to .env"
-}
-
-# Build a Windows venv (not WSL): the launcher spawns the native Windows engine, avoiding a WSL hop.
-ensure_bar_launch_venv_windows() {
-  is_wsl || return 0
-
-  local data_dir_wsl="${BAR_DATA_DIR:-$(bar_data_dir_get)}"
-  if [ -z "$data_dir_wsl" ]; then
-    warn "BAR_DATA_DIR not set -- skipping Windows venv bootstrap."
-    return 0
-  fi
-
-  local py_path
-  py_path="$(command -v py.exe 2>/dev/null || true)"
-  if ! _is_real_windows_python "$py_path"; then
-    py_path="$(command -v python.exe 2>/dev/null || true)"
-  fi
-  if ! _is_real_windows_python "$py_path"; then
-    warn "No real Windows Python found -- skipping venv bootstrap."
-    info "Run 'just setup::init' again after installing Python on Windows."
-    return 0
-  fi
-
-  local venv_wsl="$data_dir_wsl/.venv"
-  local venv_python_wsl="$venv_wsl/Scripts/python.exe"
-
-  if [ ! -x "$venv_python_wsl" ] && [ ! -f "$venv_python_wsl" ]; then
-    step "Creating Windows venv at $venv_wsl"
-    "$py_path" -3 -m venv "$(_to_windows_path "$venv_wsl")" \
-      || { err "Failed to create venv at $venv_wsl"; return 1; }
-  fi
-
-  if [ ! -f "$venv_python_wsl" ]; then
-    err "venv created but $venv_python_wsl is missing -- aborting."
-    return 1
-  fi
-
-  local repo_path
-  repo_path="$(bar_launch_repo_path)"
-  if [ ! -f "$repo_path/pyproject.toml" ]; then
-    err "bar_debug_launcher checkout missing at $repo_path -- skipping venv install."
-    return 1
-  fi
-
-  step "Installing bar_debug_launcher into Windows venv"
-  local repo_unc
-  repo_unc="$(_to_windows_path "$repo_path")"
-  "$venv_python_wsl" -m pip install --upgrade pip --quiet \
-    || warn "pip self-upgrade failed; continuing"
-  "$venv_python_wsl" -m pip install --quiet --editable "$repo_unc" \
-    || { err "pip install bar_debug_launcher failed"; return 1; }
-
-  ok "Windows venv ready: $venv_wsl"
-  export BAR_LAUNCH_VENV="$venv_wsl"
-}
-
-# Generate <BAR_DATA_DIR>/bin/bar-launch.cmd with absolute Windows paths baked in.
-regenerate_bar_launch_cmd_shim() {
-  is_wsl || return 0
-
-  local data_dir_wsl="${BAR_DATA_DIR:-$(bar_data_dir_get)}"
-  if [ -z "$data_dir_wsl" ]; then
-    err "BAR_DATA_DIR not set -- run 'just setup::init' on WSL first."
-    return 1
-  fi
-
-  local venv_python_wsl="$data_dir_wsl/.venv/Scripts/python.exe"
-  if [ ! -f "$venv_python_wsl" ]; then
-    err "Windows venv python not found at $venv_python_wsl"
-    info "Run 'just setup::init' to create it."
-    return 1
-  fi
-
-  local shim_wsl="$data_dir_wsl/bin/bar-launch.cmd"
-  mkdir -p "$(dirname "$shim_wsl")"
-
-  local venv_python_win data_dir_win
-  venv_python_win="$(_to_windows_path "$venv_python_wsl")"
-  data_dir_win="$(_to_windows_path "$data_dir_wsl")"
-
-  cat > "$shim_wsl" <<EOF
-@echo off
-REM Generated by BAR-Devtools setup. Edit via: just bar::regen-shim
-"$venv_python_win" -m bar_launch --data-dir "$data_dir_win" %*
-EOF
-  sed -i 's/$/\r/' "$shim_wsl"
-
-  ok "Generated $shim_wsl"
 }
 
 # Show every decision + the work ahead, then gate on a single Y/n.
@@ -1714,6 +1398,7 @@ cmd_init() {
   echo ""
   if is_wsl; then
     ensure_bar_data_dir || warn "Skipping BAR data dir setup (set BAR_DATA_DIR in .env to retry)."
+    ensure_bar_debug_dir || warn "Skipping BAR debug dir setup (set BAR_DEBUG_DIR in .env to retry)."
   fi
 
   ensure_module_by_name features || true
@@ -1852,12 +1537,19 @@ cmd_init() {
 
   step "7/8  bar-launch venv (just bar::launch)"
   echo ""
+  # Only regenerate the shim when the venv was actually built; a skipped venv
+  # (no Windows Python) must not cascade into regenerate's hard "not found".
   if is_wsl; then
-    ensure_bar_launch_venv_windows && regenerate_bar_launch_cmd_shim
-  else
-    cmd_setup_bar_launch
-  fi
-  if [ $? -eq 0 ]; then
+    if ensure_bar_launch_venv_windows; then
+      if regenerate_bar_launch_cmd_shim; then
+        recap "bar-launch venv" ok "ready"
+      else
+        recap "bar-launch venv" warn "shim regen failed -- see output above"
+      fi
+    else
+      recap "bar-launch venv" warn "not built -- install Windows Python, then re-run from a fresh WSL shell"
+    fi
+  elif cmd_setup_bar_launch; then
     recap "bar-launch venv" ok "ready"
   else
     recap "bar-launch venv" warn "failed -- see output above"
