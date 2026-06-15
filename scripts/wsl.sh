@@ -256,7 +256,7 @@ ensure_bar_debug_dir() {
       default_path="$(wslpath -u "$localappdata")/bar_debug_launcher"
     fi
 
-    info "Where the bar_debug_launcher venv and build staging go (rarely matters)."
+    info "Where we install bar_debug_launcher for you (recommended: accept the default by pressing Enter)."
 
     local response=""
     [ -t 0 ] && read -rp "BAR debug dir [$(_to_windows_path "$default_path")]: " response
