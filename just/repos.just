@@ -35,3 +35,11 @@ normalize-remotes:
     source "$DEVTOOLS_DIR/scripts/common.sh"
     source "$DEVTOOLS_DIR/scripts/repos.sh"
     cmd_normalize_remotes
+
+# Apply repos.local.conf to existing checkouts: add fork remotes + switch to configured branch
+sync target="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    source "$DEVTOOLS_DIR/scripts/repos.sh"
+    cmd_sync "{{target}}"
