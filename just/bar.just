@@ -45,16 +45,22 @@ dev-mode:
     ensure_devmode_marker "$game_dir"
     info "Relaunch Chobby (or run 'just bar::launch') to pick up the change."
 
-# Regenerate the Windows-side launcher shim from current .env values (WSL2-only)
+# Build the Windows venv if missing, then regenerate the launcher shim (WSL2-only)
 regen-shim:
     #!/usr/bin/env bash
     set -euo pipefail
+    : "${REPOS_CONF:=$DEVTOOLS_DIR/repos.conf}"
+    : "${REPOS_LOCAL:=$DEVTOOLS_DIR/repos.local.conf}"
+    export REPOS_CONF REPOS_LOCAL
     source "$DEVTOOLS_DIR/scripts/common.sh"
     source "$DEVTOOLS_DIR/scripts/setup.sh"
+    source "$DEVTOOLS_DIR/scripts/repos.sh"
     if ! is_wsl; then
       err "regen-shim is WSL2-only -- on Linux, 'just bar::launch' runs bar-launch directly."
       exit 1
     fi
+    ensure_bar_debug_dir || exit 1
+    ensure_bar_launch_venv_windows || exit 1
     regenerate_bar_launch_cmd_shim
 
 # Tail the WSL sync daemon log (WSL2-only)
@@ -66,11 +72,11 @@ sync-logs *TAIL_FLAGS:
       err "sync-logs is WSL2-only (Linux uses symlinks; nothing to log)."
       exit 1
     fi
-    if [ -z "${BAR_DATA_DIR:-}" ]; then
-      err "BAR_DATA_DIR not set. Run 'just setup::init' on WSL2 first."
+    if [ -z "${BAR_DEBUG_DIR:-}" ]; then
+      err "BAR_DEBUG_DIR not set. Run 'just setup::init' on WSL2 first."
       exit 1
     fi
-    logfile="$BAR_DATA_DIR/.bar-launch/sync.log"
+    logfile="$BAR_DEBUG_DIR/.bar-launch/sync.log"
     if [ ! -f "$logfile" ]; then
       err "No sync log at $logfile yet -- has 'just bar::launch' or 'sync.sh start' run?"
       exit 1
