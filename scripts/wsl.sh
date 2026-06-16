@@ -162,7 +162,7 @@ _detect_bar_install_win() {
   is_wsl || return 0
   command -v reg.exe &>/dev/null || return 0
   command -v wslpath &>/dev/null || return 0
-  local hive key loc loc_wsl
+  local hive key dump loc loc_wsl
   for hive in \
     'HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall' \
     'HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall' \
@@ -170,8 +170,12 @@ _detect_bar_install_win() {
     key="$(reg.exe query "$hive" /s /v DisplayName 2>/dev/null | tr -d '\r' \
       | grep -iB1 'REG_SZ[[:space:]]*Beyond-All-Reason' | grep -i '^HKEY' | head -n1)"
     [ -n "$key" ] || continue
-    loc="$(reg.exe query "$key" /v InstallLocation 2>/dev/null | tr -d '\r' \
-      | sed -n 's/.*InstallLocation[[:space:]]*REG_SZ[[:space:]]*//p' | head -n1)"
+    dump="$(reg.exe query "$key" 2>/dev/null | tr -d '\r')"
+    # All-users installs omit InstallLocation; recover the dir from DisplayIcon
+    # (exe path with a ,N icon suffix) or the quoted UninstallString.
+    loc="$(printf '%s\n' "$dump" | sed -n 's/.*InstallLocation[[:space:]]*REG_SZ[[:space:]]*//p' | head -n1)"
+    [ -z "$loc" ] && loc="$(printf '%s\n' "$dump" | sed -n 's/.*DisplayIcon[[:space:]]*REG_SZ[[:space:]]*//p' | head -n1 | sed 's/,[0-9]*$//; s/\\[^\\]*$//')"
+    [ -z "$loc" ] && loc="$(printf '%s\n' "$dump" | sed -n 's/.*UninstallString[[:space:]]*REG_SZ[[:space:]]*//p' | head -n1 | sed 's/^"//; s/".*$//; s/\\[^\\]*$//')"
     loc="${loc%\\}"
     [ -n "$loc" ] || continue
     loc_wsl="$(wslpath -u "$loc" 2>/dev/null)" || continue
