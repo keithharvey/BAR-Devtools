@@ -54,6 +54,15 @@ editor:
     echo "BAR_EDITOR_SETUP=yes" >> "$DEVTOOLS_DIR/.env"
     cmd_setup_editor
 
+# Install the bar-launch venv (pipx; installs a Tk-capable Python on rpm-ostree)
+bar-launch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    source "$DEVTOOLS_DIR/scripts/repos.sh"
+    source "$DEVTOOLS_DIR/scripts/setup.sh"
+    cmd_setup_bar_launch
+
 # Install git pre-commit hooks (stylua + luacheck) in BAR repo
 hooks:
     just bar::setup-hooks
