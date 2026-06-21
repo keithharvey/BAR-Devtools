@@ -437,22 +437,34 @@ _ensure_pipx() {
   command -v pipx &>/dev/null
 }
 
-# Find a Python >= 3.10 that can `import tkinter`. Probes /usr/bin paths so a pyenv shim can't shadow it.
-_pick_tkinter_python() {
-  local cand
+# Find a Python >= 3.10, optionally requiring tkinter (pass "tk"). Probes brew + /usr/bin
+# so a pyenv shim can't shadow it; brew first because on rpm-ostree it's the tk-capable one.
+_pick_python() {
+  local require_tk="${1:-}" cand resolved brew_bin=""
+  command -v brew &>/dev/null && brew_bin="$(brew --prefix 2>/dev/null)/bin"
   for cand in \
-      /usr/bin/python3.13 /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python3.10 /usr/bin/python3 \
-      python3.13 python3.12 python3.11 python3.10 python3; do
-    local resolved
+      ${brew_bin:+"$brew_bin"/python3.14 "$brew_bin"/python3.13 "$brew_bin"/python3.12} \
+      /usr/bin/python3.14 /usr/bin/python3.13 /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python3.10 /usr/bin/python3 \
+      python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
     resolved="$(command -v "$cand" 2>/dev/null)" || continue
-    "$resolved" - <<'PY' 2>/dev/null && { echo "$resolved"; return 0; }
-import sys
+    REQUIRE_TK="$require_tk" "$resolved" - <<'PY' 2>/dev/null && { echo "$resolved"; return 0; }
+import os, sys
 if sys.version_info < (3, 10):
     sys.exit(1)
-import tkinter  # noqa: F401  -- imports _tkinter as a side effect
+if os.environ.get("REQUIRE_TK"):
+    import tkinter  # noqa: F401  -- imports _tkinter as a side effect
 PY
   done
   return 1
+}
+
+# Immutable distros (rpm-ostree) ship a tkinter-less base Python and can't layer one
+# without a reboot. Homebrew is the no-reboot escape hatch -- install a Tk-capable Python.
+_ensure_tk_python() {
+  _is_ostree || return 0
+  command -v brew &>/dev/null || return 0
+  step "rpm-ostree + no tkinter -- installing a Tk-capable Python via Homebrew"
+  brew install python-tk@3.14 || { err "brew install python-tk@3.14 failed (try 'brew update' then re-run)"; return 1; }
 }
 
 # Editable-install the launcher with pipx, exposing the `bar-launch` entry point on PATH.
@@ -465,15 +477,21 @@ ensure_bar_launch_installed() {
 
   _ensure_pipx || return 1
 
-  local target_py
-  target_py="$(_pick_tkinter_python || true)"
+  # The bar-launch CLI doesn't need tkinter -- only the Tk GUI does -- so tkinter
+  # is preferred, not required. Falling back keeps the CLI working on hosts (e.g.
+  # rpm-ostree/Bazzite) where tk isn't layered, without forcing a reboot.
+  local target_py have_tk=1
+  target_py="$(_pick_python tk || true)"
   if [ -z "$target_py" ]; then
-    err "No Python ≥ 3.10 with a working tkinter found."
-    info "The launcher's GUI imports tkinter; pipx will not auto-fix this."
-    info "Fedora:  sudo dnf install python3-tkinter   (or rpm-ostree install)"
-    info "Debian:  sudo apt install python3-tk"
-    info "Arch:    sudo pacman -S tk"
-    info "pyenv:   install tk-devel (Fedora) / tk-dev (Debian) and rebuild Python"
+    _ensure_tk_python || return 1
+    target_py="$(_pick_python tk || true)"
+  fi
+  if [ -z "$target_py" ]; then
+    have_tk=0
+    target_py="$(_pick_python || true)"
+  fi
+  if [ -z "$target_py" ]; then
+    err "No Python ≥ 3.10 found."
     return 1
   fi
 
@@ -488,6 +506,15 @@ ensure_bar_launch_installed() {
   touch "${XDG_STATE_HOME:-$HOME/.local/state}/bar-devtools/bar-launch-installed"
 
   ok "bar-launch installed (entry point: $(command -v bar-launch || echo "~/.local/bin/bar-launch"))"
+
+  if [ "$have_tk" -eq 0 ]; then
+    warn "Installed against a Python without tkinter -- the CLI works, but the Tk GUI won't."
+    info "For the GUI, install tkinter for ${target_py}:"
+    info "  Homebrew: brew install python-tk   (no reboot; recommended on rpm-ostree)"
+    info "  Debian:   sudo apt install python3-tk"
+    info "  Arch:     sudo pacman -S tk"
+    info "  Fedora:   rpm-ostree install python3-tkinter && reboot"
+  fi
 
   if ! command -v bar-launch &>/dev/null; then
     warn "bar-launch isn't on PATH yet. Open a new shell, or run: pipx ensurepath"
@@ -859,7 +886,7 @@ cmd_setup_distrobox() {
   fi
   echo ""
 
-  export_dev_binaries || warn "Some dev binaries failed to export; recipes / editor that depend on them will need 'just setup::distrobox' rerun."
+  export_dev_binaries || return 1
   echo ""
 
   if is_wsl; then
@@ -1549,10 +1576,9 @@ cmd_init() {
     else
       recap "bar-launch venv" warn "not built -- install Windows Python, then re-run from a fresh WSL shell"
     fi
-  elif cmd_setup_bar_launch; then
-    recap "bar-launch venv" ok "ready"
   else
-    recap "bar-launch venv" warn "failed -- see output above"
+    cmd_setup_bar_launch || { err "bar-launch setup failed."; exit 1; }
+    recap "bar-launch venv" ok "ready"
   fi
   echo ""
 
@@ -1564,7 +1590,18 @@ cmd_init() {
 
   local feat_n
   feat_n="$(awk -F, '{print NF}' <<<"$features")"
-  echo -e "${GREEN}${BOLD}✔ Setup complete${NC} ${DIM}— ${feat_n} feature(s) ready${NC}"
+
+  local problems=0 _entry _status
+  for _entry in "${SETUP_RECAP[@]}"; do
+    IFS='|' read -r _ _status _ <<<"$_entry"
+    [ "$_status" = warn ] && problems=$((problems + 1))
+  done
+
+  if [ "$problems" -gt 0 ]; then
+    echo -e "${YELLOW}${BOLD}⚠ Setup finished with ${problems} problem(s)${NC} ${DIM}— fix the ⚠ items below and re-run 'just setup::init'${NC}"
+  else
+    echo -e "${GREEN}${BOLD}✔ Setup complete${NC} ${DIM}— ${feat_n} feature(s) ready${NC}"
+  fi
   echo ""
   render_setup_recap
   echo ""
@@ -1621,6 +1658,8 @@ cmd_init() {
   echo "  To use your own forks, add the rows you want to change to"
   echo "  repos.local.conf (directory/url/branch). Then run: just repos::clone"
   echo ""
+  [ "$problems" -gt 0 ] && return 1
+  return 0
 }
 
 cmd_setup() {
@@ -1697,6 +1736,12 @@ detect_game_dir() {
 }
 
 cmd_link() {
+  # multiple targets (e.g. `link::create bar chobby engine`): link each in turn.
+  if [ "$#" -gt 1 ]; then
+    local t
+    for t in "$@"; do cmd_link "$t"; done
+    return 0
+  fi
   local target="${1:-}"
   local game_dir
   game_dir="$(detect_game_dir 2>/dev/null)" || true
