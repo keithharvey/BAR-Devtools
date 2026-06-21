@@ -388,148 +388,18 @@ bar_launch_repo_path() {
   echo "$DEVTOOLS_DIR/bar_debug_launcher"
 }
 
-# True on rpm-ostree systems, where the package layer is read-only at runtime.
-_is_ostree() {
-  command -v rpm-ostree &>/dev/null && [ -e /run/ostree-booted ]
-}
-
-# Install pipx if missing. On rpm-ostree, bootstrap it via `pip install --user`.
-_ensure_pipx() {
-  if command -v pipx &>/dev/null; then return 0; fi
-
-  if _is_ostree; then
-    info "rpm-ostree system detected -- bootstrapping pipx via 'pip install --user'"
-    if ! command -v python3 &>/dev/null; then
-      err "python3 not found on PATH"
-      return 1
-    fi
-    # --break-system-packages: PEP 668 EXTERNALLY-MANAGED; only touches ~/.local site-packages.
-    python3 -m pip install --user --break-system-packages --quiet pipx \
-      || { err "pip install --user pipx failed"; return 1; }
-    python3 -m pipx ensurepath >/dev/null 2>&1 || true
-    export PATH="$HOME/.local/bin:$PATH"
-    hash -r
-    command -v pipx &>/dev/null && return 0
-    err "pipx installed to ~/.local/bin but still not on PATH"
-    info "Open a new shell, or add ~/.local/bin to PATH"
-    return 1
-  fi
-
-  local distro install_cmd
-  distro="$(detect_distro)"
-  case "$distro" in
-    arch)   install_cmd="sudo pacman -S --needed python-pipx" ;;
-    debian) install_cmd="sudo apt install -y pipx" ;;
-    fedora) install_cmd="sudo dnf install -y pipx" ;;
-    *)      install_cmd="" ;;
-  esac
-
-  if [ -z "$install_cmd" ]; then
-    err "pipx is not installed and your distro is unknown. Install pipx manually:"
-    info "  https://pipx.pypa.io/stable/installation/"
-    return 1
-  fi
-
-  info "pipx not found. Installing: $install_cmd"
-  $install_cmd || { err "pipx install failed"; return 1; }
-  pipx ensurepath >/dev/null 2>&1 || true
-  hash -r
-  command -v pipx &>/dev/null
-}
-
-# Find a Python >= 3.10, optionally requiring tkinter (pass "tk"). Probes brew + /usr/bin
-# so a pyenv shim can't shadow it; brew first because on rpm-ostree it's the tk-capable one.
-_pick_python() {
-  local require_tk="${1:-}" cand resolved brew_bin=""
-  command -v brew &>/dev/null && brew_bin="$(brew --prefix 2>/dev/null)/bin"
-  for cand in \
-      ${brew_bin:+"$brew_bin"/python3.14 "$brew_bin"/python3.13 "$brew_bin"/python3.12} \
-      /usr/bin/python3.14 /usr/bin/python3.13 /usr/bin/python3.12 /usr/bin/python3.11 /usr/bin/python3.10 /usr/bin/python3 \
-      python3.14 python3.13 python3.12 python3.11 python3.10 python3; do
-    resolved="$(command -v "$cand" 2>/dev/null)" || continue
-    REQUIRE_TK="$require_tk" "$resolved" - <<'PY' 2>/dev/null && { echo "$resolved"; return 0; }
-import os, sys
-if sys.version_info < (3, 10):
-    sys.exit(1)
-if os.environ.get("REQUIRE_TK"):
-    import tkinter  # noqa: F401  -- imports _tkinter as a side effect
-PY
-  done
-  return 1
-}
-
-# Immutable distros (rpm-ostree) ship a tkinter-less base Python and can't layer one
-# without a reboot. Homebrew is the no-reboot escape hatch -- install a Tk-capable Python.
-_ensure_tk_python() {
-  _is_ostree || return 0
-  command -v brew &>/dev/null || return 0
-  step "rpm-ostree + no tkinter -- installing a Tk-capable Python via Homebrew"
-  brew install python-tk@3.14 || { err "brew install python-tk@3.14 failed (try 'brew update' then re-run)"; return 1; }
-}
-
-# Editable-install the launcher with pipx, exposing the `bar-launch` entry point on PATH.
-ensure_bar_launch_installed() {
-  local repo_path="$1"
-  if [ ! -f "$repo_path/pyproject.toml" ]; then
-    err "bar_debug_launcher pyproject.toml missing at $repo_path"
-    return 1
-  fi
-
-  _ensure_pipx || return 1
-
-  # The bar-launch CLI doesn't need tkinter -- only the Tk GUI does -- so tkinter
-  # is preferred, not required. Falling back keeps the CLI working on hosts (e.g.
-  # rpm-ostree/Bazzite) where tk isn't layered, without forcing a reboot.
-  local target_py have_tk=1
-  target_py="$(_pick_python tk || true)"
-  if [ -z "$target_py" ]; then
-    _ensure_tk_python || return 1
-    target_py="$(_pick_python tk || true)"
-  fi
-  if [ -z "$target_py" ]; then
-    have_tk=0
-    target_py="$(_pick_python || true)"
-  fi
-  if [ -z "$target_py" ]; then
-    err "No Python ≥ 3.10 found."
-    return 1
-  fi
-
-  step "Installing bar_debug_launcher via pipx (editable, --python $target_py)"
-  # Uninstall first: `pipx install --force` ignores --python when reusing an existing venv.
-  pipx uninstall bar-launch >/dev/null 2>&1 || true
-  pipx uninstall bar_launch >/dev/null 2>&1 || true
-  pipx install --editable --python "$target_py" "$repo_path"
-
-  # Marker lets launch.sh detect pyproject.toml manifest changes and trigger a reinstall.
-  mkdir -p "${XDG_STATE_HOME:-$HOME/.local/state}/bar-devtools"
-  touch "${XDG_STATE_HOME:-$HOME/.local/state}/bar-devtools/bar-launch-installed"
-
-  ok "bar-launch installed (entry point: $(command -v bar-launch || echo "~/.local/bin/bar-launch"))"
-
-  if [ "$have_tk" -eq 0 ]; then
-    warn "Installed against a Python without tkinter -- the CLI works, but the Tk GUI won't."
-    info "For the GUI, install tkinter for ${target_py}:"
-    info "  Homebrew: brew install python-tk   (no reboot; recommended on rpm-ostree)"
-    info "  Debian:   sudo apt install python3-tk"
-    info "  Arch:     sudo pacman -S tk"
-    info "  Fedora:   rpm-ostree install python3-tkinter && reboot"
-  fi
-
-  if ! command -v bar-launch &>/dev/null; then
-    warn "bar-launch isn't on PATH yet. Open a new shell, or run: pipx ensurepath"
-  fi
-}
-
+# The launcher runs from source inside bar-dev (Fedora Tk + deps come from
+# dev.Containerfile), so there's nothing to install on the host -- just confirm
+# the checkout and that the AppImage path is set.
 cmd_setup_bar_launch() {
   local repo_path
   repo_path="$(bar_launch_repo_path)"
-  if [ ! -d "$repo_path/bar_launch" ]; then
-    info "bar_debug_launcher not checked out at $repo_path -- skipping bar-launch install."
+  if [ ! -f "$repo_path/bar_launch/__main__.py" ]; then
+    info "bar_debug_launcher not checked out at $repo_path -- skipping."
     info "Add it via: just repos::clone bar (or set local_path in repos.local.conf)."
     return 0
   fi
-  ensure_bar_launch_installed "$repo_path"
+  ok "bar-launch runs from ${repo_path} inside ${DEVTOOLS_DISTROBOX:-bar-dev}"
   ensure_bar_appimage_path_set
 }
 

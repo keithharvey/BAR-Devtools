@@ -96,20 +96,12 @@ preflight_chobby_channel() {
 }
 
 run_linux() {
-  if ! command -v bar-launch &>/dev/null; then
-    err "bar-launch not on PATH"
-    info "Run 'just setup::init' (pipx-installs the launcher), or run 'pipx ensurepath' if it's already installed."
-    exit 1
-  fi
   local repo_path
   repo_path="$(bar_launch_repo_path)"
-
-  # Editable installs pick up .py edits, but a new pinned dep needs a reinstall.
-  local marker="${XDG_STATE_HOME:-$HOME/.local/state}/bar-devtools/bar-launch-installed"
-  local pyproject="$repo_path/pyproject.toml"
-  if [ -f "$pyproject" ] && [ -f "$marker" ] && [ "$pyproject" -nt "$marker" ]; then
-    info "$(basename "$repo_path")/pyproject.toml is newer than the bar-launch install -- reinstalling"
-    ensure_bar_launch_installed "$repo_path" || exit 1
+  if [ ! -f "$repo_path/bar_launch/__main__.py" ]; then
+    err "bar_debug_launcher not found at $repo_path"
+    info "Run 'just repos::clone bar' (or 'just setup::init')."
+    exit 1
   fi
 
   preflight_symlinks
@@ -134,11 +126,14 @@ run_linux() {
 
   preflight_appimage "${user_args[@]}"
 
-  # Launcher autodetect anchors on cwd; point it at the managed checkout.
-  cd "$repo_path"
-
-  info "Running: bar-launch ${injected[*]:-} ${user_args[*]:-}"
-  exec bar-launch "${injected[@]}" "${user_args[@]}"
+  # GUI/CLI run inside bar-dev (Fedora Tk: real fonts + antialiasing); the engine
+  # is launched back on the host via host_cmd_prefix(). Run from source so repo
+  # edits stay live -- no install, no shared ~/.local/bin pipx conflict.
+  local box="${DEVTOOLS_DISTROBOX:-bar-dev}"
+  cd "$repo_path"   # launcher autodetect anchors on cwd
+  info "Running in ${box}: bar_launch ${injected[*]:-} ${user_args[*]:-}"
+  exec distrobox enter "$box" -- \
+    env PYTHONPATH="$repo_path" python3 -m bar_launch "${injected[@]}" "${user_args[@]}"
 }
 
 # Matches both "--engine X" and "--engine=X" forms.

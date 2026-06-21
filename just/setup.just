@@ -54,7 +54,7 @@ editor:
     echo "BAR_EDITOR_SETUP=yes" >> "$DEVTOOLS_DIR/.env"
     cmd_setup_editor
 
-# Install the bar-launch venv (pipx; installs a Tk-capable Python on rpm-ostree)
+# Verify the bar-launch checkout + AppImage path (runs from source inside bar-dev)
 bar-launch:
     #!/usr/bin/env bash
     set -euo pipefail
