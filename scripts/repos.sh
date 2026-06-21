@@ -616,7 +616,8 @@ cmd_sync() {
     [ "$only" != "all" ] && [ "$only" != "$dir" ] && continue
     matched=1
     sync_repo "$dir" "${REPO_URLS[$i]}" "${REPO_BRANCHES[$i]}" \
-              "${REPO_UPSTREAM_URLS[$i]}" "${REPO_LOCAL_PATHS[$i]}" "$force"
+              "${REPO_UPSTREAM_URLS[$i]}" "${REPO_LOCAL_PATHS[$i]}" "$force" \
+      || warn "  ${dir}: sync failed -- skipping"
   done
 
   if [ "$only" != "all" ] && [ "$matched" = 0 ]; then
