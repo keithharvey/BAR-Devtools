@@ -4,7 +4,6 @@ DEVTOOLS_DIR        := justfile_directory()
 COMPOSE_FILE        := DEVTOOLS_DIR / "docker-compose.dev.yml"
 COMPOSE             := "podman compose -f " + COMPOSE_FILE
 BAR_DIR             := DEVTOOLS_DIR / "Beyond-All-Reason"
-INTEGRATION_COMPOSE := "podman compose -f " + BAR_DIR / "tools" / "headless_testing" / "docker-compose.yml"
 
 [private]
 require-bar:
@@ -207,10 +206,13 @@ integrations *args: require-bar
         exit 1
     fi
 
+    # realpath so podman's ,z relabel follows a symlinked repo instead of the link node.
+    compose="podman compose -f $(realpath "$BAR_DIR/tools/headless_testing/docker-compose.yml")"
+
     # Prefer a local Recoil build over the stock engine download if one exists.
-    compose="{{INTEGRATION_COMPOSE}}"
     local_engine="$DEVTOOLS_DIR/RecoilEngine/build-amd64-linux/install"
     if [ -x "$local_engine/spring-headless" ]; then
+        local_engine="$(realpath "$local_engine")"
         info "Using local engine: $local_engine"
         export BAR_LOCAL_ENGINE="$local_engine"
         export BAR_DEVTOOLS_DIR="$DEVTOOLS_DIR"
