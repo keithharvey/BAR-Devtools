@@ -36,6 +36,12 @@ services:
       TEI_DB_NAME: teiserver_dev
       TEI_DB_POOL_SIZE: "20"
       TEI_DB_QUEUE_INTERVAL: "5000"
+      # Enables the spring lobby TLS listener + STLS upgrade (cert generated in the
+      # entrypoint). SPADS connects with --tls-cert-trust and trusts the self-signed cert.
+      TEI_TLS_PRIVATE_KEY_PATH: /app/.devtools/tls/key.pem
+      TEI_TLS_CERT_PATH: /app/.devtools/tls/cert.pem
+      TEI_TLS_CA_CERT_PATH: /app/.devtools/tls/cert.pem
+      TEI_TLS_DH_FILE_PATH: /app/.devtools/tls/dhparam.pem
     entrypoint: ["/bin/bash", "/entrypoint.sh"]
     volumes:
       - ./docker/teiserver-entrypoint.sh:/entrypoint.sh:ro,z
