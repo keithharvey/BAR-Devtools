@@ -73,6 +73,17 @@ stage-modes:
     export SPADS_LOCAL_MODES="1"
     step "Recreating SPADS to load the staged modes"
     {{COMPOSE}} --profile spads up -d --force-recreate spads
+    # up -d returns at container start, but SPADS dies ~15s in if it can't
+    # provision its game -- poll a window and fail if it exits.
+    info "Waiting for SPADS to settle..."
+    for _ in $(seq 1 12); do
+      sleep 2
+      if ! {{COMPOSE}} --profile spads ps --services --status running 2>/dev/null | grep -qx spads; then
+        err "SPADS exited after starting -- modes are staged but not being served."
+        info "Check why: just services::logs spads"
+        exit 1
+      fi
+    done
     ok "Staged local modes -- SPADS serves them for any hosted version (!mode)."
     info "Revert with: just spads::unstage-modes"
 
