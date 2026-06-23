@@ -34,6 +34,7 @@ dev-mode:
     set -euo pipefail
     source "$DEVTOOLS_DIR/scripts/common.sh"
     source "$DEVTOOLS_DIR/scripts/setup.sh"
+    source "$DEVTOOLS_DIR/scripts/chobby-channel.sh"
     game_dir="${BAR_DATA_DIR:-$(detect_game_dir 2>/dev/null || true)}"
     if [ -z "$game_dir" ]; then
       err "Could not resolve BAR data dir. Set BAR_DATA_DIR or run 'just setup::init' first."
