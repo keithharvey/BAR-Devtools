@@ -17,7 +17,8 @@ server target="local":
       prod)  addr="server4.beyondallreason.info" ;;
       *) err "usage: just chobby::server <local|prod>"; exit 1 ;;
     esac
-    [ -n "${BAR_DATA_DIR:-$(detect_game_dir 2>/dev/null || true)}" ] || { err "Could not resolve BAR data dir. Set BAR_DATA_DIR or run 'just setup::init' first."; exit 1; }
+    export BAR_DATA_DIR="${BAR_DATA_DIR:-$(detect_game_dir 2>/dev/null || true)}"
+    [ -n "$BAR_DATA_DIR" ] || { err "Could not resolve BAR data dir. Set BAR_DATA_DIR or run 'just setup::init' first."; exit 1; }
     write_env_key BAR_CHOBBY_SERVER "$addr"
     apply_chobby_server
     info "Relaunch Chobby (or 'just bar::launch') to connect to $addr."
@@ -29,8 +30,9 @@ dev-mode target="on":
     source "$DEVTOOLS_DIR/scripts/common.sh"
     source "$DEVTOOLS_DIR/scripts/setup.sh"
     source "$DEVTOOLS_DIR/scripts/chobby-config.sh"
-    game_dir="${BAR_DATA_DIR:-$(detect_game_dir 2>/dev/null || true)}"
-    [ -n "$game_dir" ] || { err "Could not resolve BAR data dir. Set BAR_DATA_DIR or run 'just setup::init' first."; exit 1; }
+    export BAR_DATA_DIR="${BAR_DATA_DIR:-$(detect_game_dir 2>/dev/null || true)}"
+    [ -n "$BAR_DATA_DIR" ] || { err "Could not resolve BAR data dir. Set BAR_DATA_DIR or run 'just setup::init' first."; exit 1; }
+    game_dir="$BAR_DATA_DIR"
     case "{{target}}" in
       on)  channel="byar-dev" ;;
       off) channel="byar" ;;
