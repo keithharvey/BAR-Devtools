@@ -111,3 +111,21 @@ set_chobby_channel() {
     _write_chobby_game        "$data_dir/chobby_config.json"   "$game"
     _write_chobby_widget_game "$data_dir"                      "$game"
 }
+
+# write BAR_CHOBBY_CHANNEL into the chobby state files; idempotent. Explicit
+# opt-in only (just bar::dev-mode) -- nothing else mutates the shared install.
+apply_chobby_channel() {
+    local data_dir desired current widget_current
+    data_dir="${BAR_DATA_DIR:-$(read_env_key BAR_DATA_DIR)}"
+    [ -n "$data_dir" ] || return 0
+    desired="$(read_env_key BAR_CHOBBY_CHANNEL)"
+    [ -n "$desired" ] || return 0
+
+    current="$(_chobby_game_field "$data_dir/chobby_config.json")"
+    widget_current="$(_chobby_widget_game_field "$data_dir")"
+    if [ "$current" = "$desired" ] && { [ -z "$widget_current" ] || [ "$widget_current" = "$desired" ]; }; then
+        return 0
+    fi
+    set_chobby_channel "$data_dir" "$desired"
+    ok "Chobby gameConfig set to $desired (chobby_config.json + IGL_data.lua)"
+}
