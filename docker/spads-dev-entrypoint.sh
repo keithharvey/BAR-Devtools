@@ -37,11 +37,13 @@ fi
 prd="$(find /opt/bar-engine -name pr-downloader -type f 2>/dev/null | head -1)"
 [ -n "$prd" ] || prd="/spring-engines/latest/pr-downloader"
 if [ ! -f "${SPRING_DATADIR}/.byar-provisioned" ]; then
-  echo "Downloading BAR game (byar:test) from the BAR CDN (first run only)..."
-  if "$prd" --filesystem-writepath "${SPRING_DATADIR}" --download-game byar:test; then
+  echo "Downloading BAR game (byar:test) + default map (first run only)..."
+  # Map must match spads_dev.conf's `map:` or SPADS can't open its battle.
+  if "$prd" --filesystem-writepath "${SPRING_DATADIR}" --download-game byar:test \
+     && "$prd" --filesystem-writepath "${SPRING_DATADIR}" --download-map "Comet Catcher Remake 1.8"; then
     touch "${SPRING_DATADIR}/.byar-provisioned"
   else
-    echo "WARNING: Game download failed. SPADS may not start properly."
+    echo "WARNING: Game/map download failed. SPADS may not start properly."
   fi
 fi
 
