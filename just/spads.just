@@ -2,6 +2,9 @@ set export
 
 DEVTOOLS_DIR := justfile_directory()
 BAR_DIR      := DEVTOOLS_DIR / "Beyond-All-Reason"
+COMPOSE_FILE := DEVTOOLS_DIR / "docker-compose.dev.yml"
+COMPOSE      := "podman compose -f " + COMPOSE_FILE
+MODES_MOUNT  := DEVTOOLS_DIR / "docker" / "spads-modes"
 
 [private]
 require-bar:
@@ -57,3 +60,31 @@ export-modes out="": require-bar
       cp "$result" "{{out}}"
       ok "Copied to {{out}}"
     fi
+
+# Stage this checkout's modes into the running SPADS autohost. The ModeCommand
+# plugin then serves them (via a file:// override) instead of the published asset.
+stage-modes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    require_host
+    just spads::export-modes "{{MODES_MOUNT}}/game_modes-local.json"
+    write_env_key SPADS_LOCAL_MODES "1"
+    export SPADS_LOCAL_MODES="1"
+    step "Recreating SPADS to load the staged modes"
+    {{COMPOSE}} --profile spads up -d --force-recreate spads
+    ok "Staged local modes -- SPADS serves them for any hosted version (!mode)."
+    info "Revert with: just spads::unstage-modes"
+
+# Remove staged modes; SPADS reverts to the published game-modes lookup.
+unstage-modes:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    require_host
+    rm -f "{{MODES_MOUNT}}"/*.json
+    write_env_key SPADS_LOCAL_MODES ""
+    export SPADS_LOCAL_MODES=""
+    step "Recreating SPADS to drop the staged modes"
+    {{COMPOSE}} --profile spads up -d --force-recreate spads
+    ok "Reverted -- SPADS now uses the published game-modes lookup."
