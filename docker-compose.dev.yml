@@ -54,7 +54,10 @@ services:
       start_period: 180s
 
   spads:
-    image: badosu/spads:latest
+    image: bar-devtools-spads:cdn
+    build:
+      context: .
+      dockerfile: docker/spads.Dockerfile
     profiles: ["spads"]
     depends_on:
       teiserver:
@@ -72,6 +75,10 @@ services:
       SPRING_DATADIR: /spring-data
       SPRING_WRITEDIR: /spring-data
       SPRING_HOSTIP: ""
+      # byar:test is on the BAR CDN, not pr-downloader's springrts default; the
+      # streamer endpoint 500s here, so pull pool files individually.
+      PRD_RAPID_REPO_MASTER: "https://repos-cdn.beyondallreason.dev/repos.gz"
+      PRD_RAPID_USE_STREAMER: "false"
       SPADS_ARGS: "--tls-cert-trust"
       # SPADS_LOCAL_MODES=1 (via `just spads::stage-modes`) makes the ModeCommand
       # plugin serve docker/spads-modes/game_modes-local.json over the published asset.

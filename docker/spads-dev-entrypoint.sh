@@ -31,11 +31,18 @@ if [ -n "$pidfiles" ]; then
   echo "$pidfiles" | xargs rm -f
 fi
 
-if [ ! -d "${SPRING_DATADIR}/games" ] || [ -z "$(ls -A ${SPRING_DATADIR}/games/ 2>/dev/null)" ]; then
-  echo "Downloading BAR game data (first run only)..."
-  /spring-engines/latest/pr-downloader \
-    --filesystem-writepath "${SPRING_DATADIR}" \
-    --download-game byar:test 2>&1 || echo "WARNING: Game download failed. SPADS may not start properly."
+# byar:test is rapid content (packages/pool, not games/), so gate on a marker.
+# The bundled pr-downloader (0.7-611) can't reach the BAR CDN; use the current
+# engine overlaid by docker/spads.Dockerfile, which honors PRD_RAPID_REPO_MASTER.
+prd="$(find /opt/bar-engine -name pr-downloader -type f 2>/dev/null | head -1)"
+[ -n "$prd" ] || prd="/spring-engines/latest/pr-downloader"
+if [ ! -f "${SPRING_DATADIR}/.byar-provisioned" ]; then
+  echo "Downloading BAR game (byar:test) from the BAR CDN (first run only)..."
+  if "$prd" --filesystem-writepath "${SPRING_DATADIR}" --download-game byar:test; then
+    touch "${SPRING_DATADIR}/.byar-provisioned"
+  else
+    echo "WARNING: Game download failed. SPADS may not start properly."
+  fi
 fi
 
 echo "Starting SPADS with dev config, connecting to ${SPADS_LOBBY_HOST:-127.0.0.1}:8200..."
