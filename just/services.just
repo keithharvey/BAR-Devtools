@@ -163,7 +163,7 @@ build:
     require_host
     info "Building Docker images..."
     info "  - Teiserver: compiling Elixir deps + generating TLS certs"
-    info "  - SPADS: badosu/spads + a current Recoil engine (BAR CDN pr-downloader)"
+    info "  - SPADS: from-scratch image (debian + spadsInstaller + current Recoil engine)"
     echo ""
     $COMPOSE build teiserver
     $COMPOSE --profile spads build spads
