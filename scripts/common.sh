@@ -35,10 +35,10 @@ read_env_key() {
     printf '%s' "$val"
 }
 
-# append a newline when $1 has content but no trailing newline
+# append a newline when $1 has content but no trailing newline; best-effort
 _ensure_trailing_newline() {
     local file="$1"
-    [ -s "$file" ] && [ -n "$(tail -c1 "$file")" ] && printf '\n' >> "$file"
+    [ -s "$file" ] && [ -n "$(tail -c1 "$file")" ] && printf '\n' >> "$file" || true
 }
 
 # upsert $1=$2 into .env
