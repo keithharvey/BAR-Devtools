@@ -167,10 +167,10 @@ build:
     install_dockerignore
     info "Building Docker images..."
     info "  - Teiserver: compiling Elixir deps + generating TLS certs"
-    info "  - SPADS: pulling pre-built image (badosu/spads:latest)"
+    info "  - SPADS: badosu/spads + a current Recoil engine (BAR CDN pr-downloader)"
     echo ""
     $COMPOSE build teiserver
-    $COMPOSE --profile spads pull spads
+    $COMPOSE --profile spads build spads
     echo ""
     ok "Images built successfully."
 
@@ -185,5 +185,5 @@ reset:
     $COMPOSE --profile spads down -v
     info "Rebuilding images from scratch..."
     $COMPOSE build --no-cache teiserver
-    $COMPOSE --profile spads pull spads
+    $COMPOSE --profile spads build --no-cache spads
     ok "Reset complete. Run 'just services::up' to start fresh."
