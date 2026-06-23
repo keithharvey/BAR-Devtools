@@ -1,57 +1,51 @@
 #!/bin/bash
+# Dev entrypoint for the from-scratch SPADS image (docker/spads.dev.Dockerfile).
+# The installer set SPADS up as a LAN autohost against springrts; override the
+# lobby config for the dockerized teiserver, drop in the BAR plugins, provision
+# the game, then launch.
 set -e
 
-_term() {
-  echo "Caught termination signal"
-  kill -TERM "$child" 2>/dev/null
-  wait "$child"
-}
+_term() { kill -TERM "$child" 2>/dev/null; wait "$child"; }
 trap _term SIGTERM SIGINT
 
-cp -R /spads_etc/* /opt/spads/etc/ 2>/dev/null || true
-cp -R /spads_var/* /opt/spads/var/ 2>/dev/null || true
+cd /opt/spads
+conf=etc/spads.conf
 
-# Use the dev config instead of production config
-cp /spads_dev.conf /opt/spads/etc/spads_dev.conf
+# teiserver advertises STLS as an accepted command even with no cert, so lobbyTls:auto
+# tries (and fails) TLS. Plain is fine on localhost dev -> force lobbyTls:off.
+sed -i \
+  -e "s|^lobbyHost:.*|lobbyHost:${SPADS_LOBBY_HOST:-127.0.0.1}|" \
+  -e "s|^lobbyLogin:.*|lobbyLogin:${SPADS_LOBBY_LOGIN:-spadsbot}|" \
+  -e "s|^lobbyPassword:.*|lobbyPassword:${SPADS_LOBBY_PASSWORD:-password}|" \
+  -e "s|^lobbyTls:.*|lobbyTls:${SPADS_LOBBY_TLS:-off}|" \
+  -e "s|^autoLoadPlugins:.*|autoLoadPlugins:${SPADS_PLUGINS:-BarChobby;ModeCommand}|" \
+  "$conf"
 
-mkdir -p /opt/spads/var/log
-mkdir -p /opt/spads/var/plugins
-mkdir -p /opt/spads/var/spring
-mkdir -p /opt/spads/var/spads_dev/log
+# teiserver's lobby-name rule forbids parentheses; the default preset names have them.
+sed -i 's|^battleName:.*|battleName:BAR Dev autohost|' etc/hostingPresets.conf 2>/dev/null || true
 
-# lobby-repo plugin dirs: *.conf -> etc, code/help -> var/plugins
-for d in /spads_plugins/*/; do
-  cp "$d"*.conf /opt/spads/etc/ 2>/dev/null || true
-  cp "$d"*.py "$d"*.pm "$d"*.dat /opt/spads/var/plugins/ 2>/dev/null || true
-done
-
-pidfiles=$(find /opt/spads/var -name "*.pid" -type f 2>/dev/null)
-if [ -n "$pidfiles" ]; then
-  echo "Cleaning stale pid files"
-  echo "$pidfiles" | xargs rm -f
+# BAR autohost plugins (ModeCommand) from the mounted BYAR-Chobby checkout.
+if [ -d /spads_plugins ]; then
+  # pluginsDir:plugins resolves relative to varDir (-> var/plugins).
+  mkdir -p var/plugins
+  for d in /spads_plugins/*/; do
+    cp "$d"*.py "$d"*.pm "$d"*.dat var/plugins/ 2>/dev/null || true
+    cp "$d"*.conf etc/ 2>/dev/null || true
+  done
 fi
 
-# byar:test is rapid content (packages/pool, not games/), so gate on a marker.
-# The bundled pr-downloader (0.7-611) can't reach the BAR CDN; use the current
-# engine overlaid by docker/spads.Dockerfile, which honors PRD_RAPID_REPO_MASTER.
-prd="$(find /opt/bar-engine -name pr-downloader -type f 2>/dev/null | head -1)"
-[ -n "$prd" ] || prd="/spring-engines/latest/pr-downloader"
-if [ ! -f "${SPRING_DATADIR}/.byar-provisioned" ]; then
-  echo "Downloading BAR game (byar:test) + default map (first run only)..."
-  # Map must match spads_dev.conf's `map:` or SPADS can't open its battle.
-  if "$prd" --filesystem-writepath "${SPRING_DATADIR}" --download-game byar:test \
-     && "$prd" --filesystem-writepath "${SPRING_DATADIR}" --download-map "Comet Catcher Remake 1.8"; then
-    touch "${SPRING_DATADIR}/.byar-provisioned"
+# The engine is auto-managed; the rapid game is not -- provision byar:test once.
+prd="$(find var/spring/recoil -name pr-downloader -type f 2>/dev/null | head -1)"
+data="$(pwd)/var/spring/data"
+if [ -n "$prd" ] && [ ! -f "$data/.byar-provisioned" ]; then
+  echo "Downloading byar:test from the BAR CDN (first run only)..."
+  if "$prd" --filesystem-writepath "$data" --download-game byar:test; then
+    touch "$data/.byar-provisioned"
   else
-    echo "WARNING: Game/map download failed. SPADS may not start properly."
+    echo "WARNING: game download failed. SPADS may not open a battle."
   fi
 fi
 
-echo "Starting SPADS with dev config, connecting to ${SPADS_LOBBY_HOST:-127.0.0.1}:8200..."
-
-perl /opt/spads/spads.pl /opt/spads/etc/spads_dev.conf \
-  ${SPADS_ARGS} &
-
+perl spads.pl "$conf" &
 child=$!
-echo "SPADS PID: $child"
 wait "$child"

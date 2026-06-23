@@ -48,21 +48,5 @@ else
   mix ecto.migrate
 fi
 
-# Self-signed cert for the spring lobby's STLS/TLS (TEI_TLS_* point here). Without
-# it use_tls? is false, SPADS' STARTTLS on 8200 fails, and it can't connect.
-if [ -n "${TEI_TLS_PRIVATE_KEY_PATH:-}" ]; then
-  mkdir -p "$(dirname "$TEI_TLS_PRIVATE_KEY_PATH")"
-  if [ ! -f "$TEI_TLS_PRIVATE_KEY_PATH" ]; then
-    echo "--- Generating self-signed lobby TLS cert ---"
-    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=localhost" \
-      -keyout "$TEI_TLS_PRIVATE_KEY_PATH" -out "$TEI_TLS_CERT_PATH"
-  fi
-  # use_tls? also turns on the web HTTPS endpoint, whose DHE ciphers need a dhparam file.
-  if [ -n "${TEI_TLS_DH_FILE_PATH:-}" ] && [ ! -f "$TEI_TLS_DH_FILE_PATH" ]; then
-    echo "--- Generating DH params (one-time, slow) ---"
-    openssl dhparam -out "$TEI_TLS_DH_FILE_PATH" 2048
-  fi
-fi
-
 echo "=== Starting Teiserver ==="
 exec mix phx.server
