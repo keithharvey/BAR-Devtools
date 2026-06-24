@@ -27,6 +27,15 @@ add-user name password="password":
       end'
     ok "Dev lobby user ready -- Chobby login: {{name}} / {{password}}"
 
+# Log a dev user into the local lobby and keep them sitting in a battle (Ctrl-C to leave)
+join-battle name="bob" password="password" battle="BAR Dev autohost":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    require_host
+    info "Joining '{{battle}}' as {{name}} -- Ctrl-C to leave"
+    exec python3 "$DEVTOOLS_DIR/scripts/lobby_join.py" 127.0.0.1 8200 "{{name}}" "{{password}}" "{{battle}}"
+
 # Initialize and migrate the test database
 setup-test-db: require-setup
     #!/usr/bin/env bash
