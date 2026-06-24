@@ -21,6 +21,8 @@ battle_name = sys.argv[5] if len(sys.argv) > 5 else "BAR Dev autohost"
 # Spring sends base64(md5(plaintext)); userID must be non-empty/non-"0" for non-bots.
 pw = base64.b64encode(hashlib.md5(password.encode()).digest()).decode()
 userid = str(int(hashlib.md5(user.encode()).hexdigest()[:8], 16) or 1)
+# Render as a real participant: player(1<<10) + synced(1<<22), team/ally 0, not ready.
+BATTLE_STATUS = "MYBATTLESTATUS 4195328 255"
 
 run = [True]
 for sig in (signal.SIGINT, signal.SIGTERM):
@@ -83,7 +85,10 @@ while run[0]:
         print(f"[lobby] JOIN FAILED: {line}", flush=True)
         joined = False
     elif cmd == "JOINEDBATTLE" and len(parts) >= 3 and parts[2] == user:
+        send(BATTLE_STATUS)
         print(f"[lobby] {user} is in '{battle_name}' (id {bid}) -- Ctrl-C to leave", flush=True)
+    elif cmd == "REQUESTBATTLESTATUS":
+        send(BATTLE_STATUS)
     elif cmd == "PING":
         send("PONG")
 
