@@ -23,7 +23,7 @@ up *args:
 
     if [ "$with_spads" -eq 1 ]; then
         info "Starting PostgreSQL, Teiserver, and SPADS..."
-        $COMPOSE --profile spads up -d --build
+        $(spads_compose) --profile spads up -d --build
     else
         info "Starting PostgreSQL and Teiserver..."
         $COMPOSE up -d --build

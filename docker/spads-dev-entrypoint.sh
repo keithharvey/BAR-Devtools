@@ -24,6 +24,17 @@ sed -i \
 # teiserver's lobby-name rule forbids parentheses; the default preset names have them.
 sed -i 's|^battleName:.*|battleName:BAR Dev autohost|' etc/hostingPresets.conf 2>/dev/null || true
 
+# Host on the dev's local RecoilEngine build (matches bar::launch --engine local-build)
+# instead of the installer's auto-managed engine, for engine-matched end-to-end testing.
+if [ "${SPADS_LOCAL_ENGINE:-}" = "1" ] && [ -x /local-engine/spring-dedicated ]; then
+  echo "Using mounted local RecoilEngine build for hosting."
+  sed -i \
+    -e "s|^autoManagedSpringVersion:.*|autoManagedSpringVersion:|" \
+    -e "s|^unitsyncDir:.*|unitsyncDir:/local-engine|" \
+    -e "s|^springServer:.*|springServer:/local-engine/spring-dedicated|" \
+    "$conf"
+fi
+
 # BAR autohost plugins (ModeCommand) from the mounted BYAR-Chobby checkout.
 if [ -d /spads_plugins ]; then
   # pluginsDir:plugins resolves relative to varDir (-> var/plugins).
