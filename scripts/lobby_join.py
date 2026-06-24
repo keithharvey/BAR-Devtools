@@ -21,8 +21,8 @@ battle_name = sys.argv[5] if len(sys.argv) > 5 else "BAR Dev autohost"
 # Spring sends base64(md5(plaintext)); userID must be non-empty/non-"0" for non-bots.
 pw = base64.b64encode(hashlib.md5(password.encode()).digest()).decode()
 userid = str(int(hashlib.md5(user.encode()).hexdigest()[:8], 16) or 1)
-# Render as a real participant: player(1<<10) + synced(1<<22), team/ally 0, not ready.
-BATTLE_STATUS = "MYBATTLESTATUS 4195328 255"
+# Render as a real participant: player(1<<10) + synced(1<<22) + ready(1<<1), team/ally 0.
+BATTLE_STATUS = "MYBATTLESTATUS 4195330 255"
 
 run = [True]
 for sig in (signal.SIGINT, signal.SIGTERM):
