@@ -82,6 +82,10 @@ services:
       - ./BYAR-Chobby/spads-plugins:/spads_plugins:ro,z
       - ./docker/spads-modes:/spads-modes:ro,z
       - spads_dev_data:/opt/spads/var/spring/data
+      # Share the client's maps with the autohost so its map list matches yours and
+      # real BAR maps (which carry their own start boxes) can be hosted. Overlays the
+      # named volume's stock installer maps. Override the source with BAR_DATA_DIR.
+      - "${BAR_DATA_DIR:-/home/daniel/.local/state/Beyond All Reason}/maps:/opt/spads/var/spring/data/maps:ro,z"
 
   recoil-docs:
     build:
