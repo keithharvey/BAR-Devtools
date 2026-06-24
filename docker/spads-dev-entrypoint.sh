@@ -24,6 +24,20 @@ sed -i \
 # teiserver's lobby-name rule forbids parentheses; the default preset names have them.
 sed -i 's|^battleName:.*|battleName:BAR Dev autohost|' etc/hostingPresets.conf 2>/dev/null || true
 
+# Host the dev's local game checkout (mounted at games/Beyond-All-Reason.sdd) instead
+# of byar:test, so the autohost serves the same archive -- and modes -- as a byar-dev
+# client. The archive name is modinfo's "<name> <version>"; the dev version is the
+# literal "$VERSION", so it's stable and matches the client loading the same .sdd.
+local_sdd=var/spring/data/games/Beyond-All-Reason.sdd
+host_local_game=0
+if [ "${SPADS_LOCAL_GAME:-}" = "1" ] && [ -f "$local_sdd/modinfo.lua" ]; then
+  host_local_game=1
+  name=$(sed -n "s/.*name *= *['\"]\([^'\"]*\)['\"].*/\1/p" "$local_sdd/modinfo.lua" | head -1)
+  ver=$(sed -n "s/.*version *= *['\"]\([^'\"]*\)['\"].*/\1/p" "$local_sdd/modinfo.lua" | head -1)
+  echo "Hosting the local game checkout (archive: $name $ver)."
+  sed -i "s|^modName:.*|modName:$name $ver|" etc/hostingPresets.conf
+fi
+
 # Host on the dev's local RecoilEngine build (matches bar::launch --engine local-build)
 # instead of the installer's auto-managed engine, for engine-matched end-to-end testing.
 if [ "${SPADS_LOCAL_ENGINE:-}" = "1" ] && [ -x /local-engine/spring-dedicated ]; then
@@ -45,10 +59,11 @@ if [ -d /spads_plugins ]; then
   done
 fi
 
-# The engine is auto-managed; the rapid game is not -- provision byar:test once.
+# The engine is auto-managed; the rapid game is not -- provision byar:test once
+# (skipped when we're hosting the local checkout instead).
 prd="$(find var/spring/recoil -name pr-downloader -type f 2>/dev/null | head -1)"
 data="$(pwd)/var/spring/data"
-if [ -n "$prd" ] && [ ! -f "$data/.byar-provisioned" ]; then
+if [ "$host_local_game" -eq 0 ] && [ -n "$prd" ] && [ ! -f "$data/.byar-provisioned" ]; then
   echo "Downloading byar:test from the BAR CDN (first run only)..."
   if "$prd" --filesystem-writepath "$data" --download-game byar:test; then
     touch "$data/.byar-provisioned"

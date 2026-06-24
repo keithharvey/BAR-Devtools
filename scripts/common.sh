@@ -209,11 +209,14 @@ require_host() {
     fi
 }
 
-# echo the `podman compose` invocation for the spads stack, adding the local-engine
-# overlay when RecoilEngine is built so the autohost hosts on the same engine as
-# bar::launch (--engine local-build) rather than the installer's published one.
+# echo the `podman compose` invocation for the spads stack, adding overlays so the
+# autohost matches a byar-dev client: the local game checkout when Beyond-All-Reason
+# is cloned, and the local RecoilEngine build when it's built (same engine as
+# bar::launch --engine local-build) rather than the installer's published one.
 spads_compose() {
     local cmd="podman compose -f $DEVTOOLS_DIR/docker-compose.dev.yml"
+    [ -f "$DEVTOOLS_DIR/Beyond-All-Reason/modinfo.lua" ] \
+        && cmd="$cmd -f $DEVTOOLS_DIR/docker-compose.spads-game.yml"
     [ -x "$DEVTOOLS_DIR/RecoilEngine/build-amd64-linux/install/spring-dedicated" ] \
         && cmd="$cmd -f $DEVTOOLS_DIR/docker-compose.spads-engine.yml"
     echo "$cmd"
