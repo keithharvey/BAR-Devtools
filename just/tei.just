@@ -12,6 +12,21 @@ require-setup:
     source "$DEVTOOLS_DIR/scripts/common.sh"
     require_repo teiserver teiserver "Teiserver"
 
+# Create a Verified dev-lobby user (Chobby login: NAME / PASSWORD, default password "password")
+add-user name password="password":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "$DEVTOOLS_DIR/scripts/common.sh"
+    require_host
+    # one-off container (not exec) so the app's listeners don't clash with the running teiserver
+    {{COMPOSE}} run --rm --entrypoint "" -e DEVU="{{name}}" -e DEVP="{{password}}" teiserver mix run -e '
+      n = System.get_env("DEVU"); alias Teiserver.Account
+      case Account.get_user_by_name(n) do
+        nil -> {:ok, u} = Account.create_user(%{name: n, email: n<>"@dev.local", password: Account.spring_md5_password(System.get_env("DEVP")), roles: ["Verified"], permissions: ["Verified"], data: %{}}); IO.puts("created #{u.name}")
+        u -> IO.puts("already exists: #{u.name}")
+      end'
+    ok "Dev lobby user ready -- Chobby login: {{name}} / {{password}}"
+
 # Initialize and migrate the test database
 setup-test-db: require-setup
     #!/usr/bin/env bash
