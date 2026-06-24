@@ -191,6 +191,16 @@ fetch_all_remotes() {
   done < <(git -C "$target" remote)
 }
 
+# bring submodules to the gitlinks recorded in $target's tree. force=1 also
+# discards divergent submodule working trees (matches a --force superproject reset).
+update_submodules() {
+  local dir="$1" target="$2" force="${3:-}"
+  [ -f "$target/.gitmodules" ] || return 0
+  git -C "$target" submodule sync --recursive --quiet 2>/dev/null || true
+  git -C "$target" submodule update --init --recursive ${force:+--force} --quiet 2>/dev/null \
+    || warn "  ${dir}: submodule update failed (offline or auth?)"
+}
+
 # fresh checkouts only
 do_clone() {
   local dir="$1" url="$2" branch="$3" upstream_url="$4" target="$5"
@@ -346,8 +356,7 @@ clone_or_update_repo() {
     verify_remotes "$dir" "$target" "$url" "$upstream_url"
     info "  ${dir}: fetching latest..."
     fetch_all_remotes "$dir" "$target"
-    git -C "$target" submodule update --init --recursive --quiet 2>/dev/null \
-      || warn "  ${dir}: submodule sync failed (offline or auth?)"
+    update_submodules "$dir" "$target"
     local current_branch
     current_branch="$(git -C "$target" branch --show-current 2>/dev/null)"
     if [ -n "$current_branch" ] && [ "$current_branch" != "$branch" ]; then
@@ -572,7 +581,7 @@ advance_branch() {
       warn "  ${dir}: reset --hard ${upstream} failed"
       return 0
     fi
-    git -C "$target" submodule update --init --recursive --quiet 2>/dev/null || true
+    update_submodules "$dir" "$target" 1
     after="$(git -C "$target" rev-parse HEAD 2>/dev/null)"
     [ "$before" != "$after" ] && ok "  ${dir}: reset ${branch} to ${upstream}"
     return 0
@@ -581,6 +590,7 @@ advance_branch() {
     warn "  ${dir}: behind ${upstream} but can't fast-forward (diverged?) -- re-run with --force"
     return 0
   fi
+  update_submodules "$dir" "$target"
   after="$(git -C "$target" rev-parse HEAD 2>/dev/null)"
   [ "$before" != "$after" ] && ok "  ${dir}: fast-forwarded ${branch} to ${upstream}"
   return 0
