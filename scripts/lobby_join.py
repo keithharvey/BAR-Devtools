@@ -3,6 +3,10 @@
 
 Usage: lobby_join.py [host] [port] [user] [password] [battle_name]
 Stays connected (so the user remains in the battle) until Ctrl-C.
+
+Anything typed on stdin is sent to the battle as a SAYBATTLE line, so this
+user can talk to the autohost -- e.g. type `!y` to vote yes on a pending SPADS
+vote (`!n` for no, `!b` to abstain), or issue any other `!command`.
 """
 import base64
 import hashlib
@@ -49,13 +53,27 @@ def maybe_join():
         joined = True
 
 
+watch = [s, sys.stdin]
 while run[0]:
     if time.time() - last_ping > 20:
         send("PING")
         last_ping = time.time()
-    r, _, _ = select.select([s], [], [], 1)
+    r, _, _ = select.select(watch, [], [], 1)
     if not r:
         continue
+    if sys.stdin in r:
+        msg = sys.stdin.readline()
+        if msg == "":            # stdin EOF (piped/backgrounded): stop watching it
+            watch = [s]
+        else:
+            msg = msg.rstrip("\r\n")
+            if msg and joined:
+                send(f"SAYBATTLE {msg}")
+                print(f"[lobby] {user} say: {msg}", flush=True)
+            elif msg:
+                print("[lobby] not in a battle yet; message dropped", flush=True)
+        if s not in r:
+            continue
     raw = f.readline()
     if not raw:
         print("[lobby] disconnected by server", flush=True)
