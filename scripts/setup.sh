@@ -15,6 +15,10 @@ detect_distro() {
   fi
 }
 
+_is_ostree() {
+  [ -f /run/ostree-booted ] || command -v rpm-ostree &>/dev/null
+}
+
 _version_ge() {
   local IFS=.
   local -a A=($1) B=($2)
