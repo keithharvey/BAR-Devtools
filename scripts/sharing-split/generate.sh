@@ -234,9 +234,10 @@ cmd_pr_body() {
     cmd_topology "$l"
     echo ""
     summary="${SELF_DIR}/descriptions/${key}.summary.md"
-    [ -s "$summary" ] && { echo "#### Summary (LLM-generated, ${DESC_MODEL})"; echo ""; cat "$summary"; echo ""; }
+    if [ -s "$summary" ]; then echo "#### Summary (LLM-generated, ${DESC_MODEL})"; echo ""; cat "$summary"; echo ""; fi
     human="${SELF_DIR}/descriptions/${key}.md"
-    [ -s "$human" ] && { echo "-----"; echo ""; cat "$human"; }
+    if [ -s "$human" ]; then echo "-----"; echo ""; cat "$human"; fi
+    return 0
 }
 
 # ── push: promote split/* content to the real branches, bottom-up ────────────
