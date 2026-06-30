@@ -270,15 +270,20 @@ cmd_push() {
 # ── update-prs: push composed bodies + set bases via gh ──────────────────────
 cmd_update_prs() {
     command -v gh >/dev/null 2>&1 || { err "gh not on PATH"; exit 1; }
-    local l n base body
+    local l n base body failed=""
     for l in $(layer_ids); do
         n=$(pr_num "$l"); base=$(pr_base "$l")
         body="$BAR/.git/sharing-pr-${l}-body.md"
         cmd_pr_body "$l" > "$body"
         step "gh pr edit #$n (base $base)"
-        gh pr edit "$n" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$base"
-        ok "  #$n updated"
+        # Resilient: a single gh failure (transient/cross-repo) must not abort the rest.
+        if gh pr edit "$n" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$base"; then
+            ok "  #$n updated"
+        else
+            warn "  #$n FAILED — continuing"; failed="$failed $n"
+        fi
     done
+    [ -n "$failed" ] && { err "PRs not updated:$failed (re-run update-prs)"; exit 1; } || ok "all PRs updated"
 }
 
 case "${1:-}" in
