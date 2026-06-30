@@ -63,19 +63,7 @@ These are the central goal: establish a ["view model"](https://en.wikipedia.org/
 
 Let's start with an example, the `UnitPolicyResult`:
 
-```lua
----@class PolicyResult
----@field senderTeamId number
----@field receiverTeamId number
-
--- Unit Transfer Action
----@class UnitPolicyResult : PolicyResult
----@field canShare boolean
----@field sharingModes string[]
----@field stunSeconds number
----@field stunCategory string
----@field techBlocking? TechBlockingContext
-```
+See [`UnitPolicyResult`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-8366865d2a2a90bac6dc2b635e42efc62818ccf543e0cdc86cbe198edf56e6efR29), which extends [`PolicyResult`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-8366865d2a2a90bac6dc2b635e42efc62818ccf543e0cdc86cbe198edf56e6efR24).
 
 This is our authoritative matrix of game behaviors as it pertains to the `PolicyType`=`unit_transfer` and the type itself existing is inherently simplifying. It is portable across layers in a way that unifies code that deals with that behavior category. Every downstream system just has to consume this type in order to understand every permutation of behavior possible. Each key is orthogonal behavior by design.
 
@@ -93,19 +81,7 @@ This is some of that "framework" code we talked about earlier. It's common to al
 
 Here is an example of the from the same beahvioral vertical we have been looking at (unit_transfer) of a `PolicyContext`:
 
-```lua
----@class PolicyContext
----@field senderTeamId number
----@field receiverTeamId number
----@field sender TeamResources
----@field receiver TeamResources
----@field springRepo SpringSynced
----@field areAlliedTeams boolean
----@field isCheatingEnabled boolean
----@field ext PolicyContextExtensions
----@field unitSharingModes? string[] Effective sharing modes (set by enricher, e.g. tech blocking)
----@field taxRate? number           Effective tax rate (set by enricher, e.g. tech blocking)
-```
+See [`PolicyContext`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-8366865d2a2a90bac6dc2b635e42efc62818ccf543e0cdc86cbe198edf56e6efR111).
 
 This gives a future developer an explicit understanding of the input data we need and cache for a given behavior expression.
 
@@ -119,7 +95,7 @@ Here is the
 
 Notice how they are stateless, and do complicated things. But the result is extremely simple for consumers. We do as much work as we can here because it's cached. This reduces complexity for devs that just want to bring their own policy, or make simple modifications to ours. We bound the runtime cost by providing and caching the policies. We can be as expressive as we want on top of that, whether that's this implementation or something that actually builds a clean AST and is more opinionated internally.
 
-### Downstream User Actions
+### Commands (Actions)
 
 This same pattern is used throughout the service layer. We establish clear inputs and outputs in the form of types for a given behavior, and then ensure our execution code conforms to the boundaries established by the `PolicyResult`.
 
