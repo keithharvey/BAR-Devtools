@@ -1,9 +1,8 @@
-
-
 # My [no LLM editor] Description
 
 ## Intro
-So I'm going to review each line in these PRs, then write in my own words what is going on in an attempt to put a more human voice on this design. Going to try to keep them short and to the point, with the exception of this PR because I need to provide a little context to get people going on this train of thought.
+
+So I'm going to review each line in these PRs, then write in my own words this description/architectural overview. I got help with converting the mermaid diagram from my markdown equivalent pseudo code and had it insert links, but otherwise it's untouched by LLMs -- all me baby.  Hopefully this can explain what is going on and put a more human voice on this design. Going to try to keep these descriptions short and to the point, with the exception of this PR because I need to provide a little context to get people going on this train of thought.
 
 The core conceit here is that for a subset of existing game behavior, we own execution _end to end_. This is me applying my bag of tricks from doing this type of refactor to this type of system countless times. It is largely a UI problem to me, and my usual way to approach that category of problem borrows heavilly from reactive programming. This PR uses the combination of a service layer in the form of the [`unit_transfer_controller`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8062/changes#diff-7b689ec0a91aa91bff996e7787265116bbfa5c910a7dd162c2e744e92ab3184bR5) and [`resource_transfer_controller`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8062/changes#diff-cad58b69f58e510cea910ed71509772772e590cd04bbad2cfcd7a1cf62d3fae3R3) and then below that a policy pattern or game behavior in order to encapsulate state and categorize commonality between behaviors in our types at various points in our functional execution layer.
 
@@ -79,7 +78,7 @@ So `PolicyResult` can only exist with boilerplate that enables them to have thei
 
 This is some of that "framework" code we talked about earlier. It's common to all types of game behavior and allows us to white list engine state we care about, in the shape we care about it. It is extensible from downstream consumers of a given behavioral service layer (ie game_unit_transfer_controller).
 
-Here is an example of the from the same beahvioral vertical we have been looking at (unit_transfer) of a `PolicyContext`:
+Here is an example from the same beahvioral vertical we have been looking at (unit_transfer) of a `PolicyContext`:
 
 See [`PolicyContext`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-8366865d2a2a90bac6dc2b635e42efc62818ccf543e0cdc86cbe198edf56e6efR111).
 
@@ -116,3 +115,4 @@ So that's the meat of it. This PR specifically attempts to lay the ground work b
      - [TooltipText](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-e9ec335d9f7e11b8c525ee9b2c3717ee2d50b9c461e0d5d01265ee1ea5a8d29cR59) - one function that generates every tooltip as it pertains to unit_transfer (e.g. when you hover over the button to do that with a given selection). It provides tooltip information _relevant_ to a given unit selection and `PolicyResult`, which allows it to be VERY specific for players that might be confused about a litany of configurations the game might be in during any given moment, without letting that complexity leak into gui_advplayerlist or gui_chat.
 
 I am SUPER proud of these implementations because they were the most difficult part of this refactor and "doing it right" if you have independently configurable mod options for a given behavior. So they got distilled down to a fine wine reduction of the problem space and I think represent a good demonstration of how much complexity you can disappear with this work.
+* things like the [unit_sharing_categories.lua](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-bf00ec6766332f4729b3f0641d039c18445027d75bb9e2e0f0307e22320a7736) is another classifier and used by features like "stun delay category" to target a specific unit "group".
