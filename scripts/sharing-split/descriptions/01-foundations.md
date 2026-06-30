@@ -42,10 +42,16 @@ flowchart TD
         UI[UI]
     end
 
+    Commands["«commands»<br/>GG.* action API<br/>executed within bounds set by PolicyResult"]
+    classDef iface stroke-dasharray:6 4,fill:#ffffff;
+    class Commands iface
+
     Engine --> Controller
     Result -->|published cache| Gadgets
     Result -->|published cache| UI
-    UI -->|Actions / user commands<br/>within bounds set by PolicyResult| Controller
+    Gadgets -.->|execute| Commands
+    UI -.->|execute| Commands
+    Commands -.->|mutates| Controller
 ```
 
 Let's talk through each piece of that architecture in order.
