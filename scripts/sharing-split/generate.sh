@@ -287,15 +287,26 @@ cmd_update_prs() {
     [ -n "$failed" ] && { err "PRs not updated:$failed (re-run update-prs)"; exit 1; } || ok "all PRs updated"
 }
 
-case "${1:-}" in
-    gen-manifest)   cmd_gen_manifest ;;
-    check)          cmd_check_manifest ;;
-    rebase)         cmd_rebase ;;
-    build)          cmd_build ;;
-    verify)         cmd_verify ;;
-    describe)       cmd_describe "${2:-all}" ;;
-    pr-body)        cmd_pr_body "${2:?layer required}" ;;
-    push)           cmd_push ;;
-    update-prs)     cmd_update_prs ;;
-    *) err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]|pr-body <layer>|push|update-prs>"; exit 1 ;;
-esac
+usage() { err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]|pr-body <layer>|push|update-prs> ..."; exit 1; }
+[ $# -eq 0 ] && usage
+
+# Run each subcommand in sequence (set -e stops on first failure), so the full
+# pipeline chains: generate.sh build verify describe push update-prs
+while [ $# -gt 0 ]; do
+    cmd="$1"; shift
+    case "$cmd" in
+        gen-manifest)   cmd_gen_manifest ;;
+        check)          cmd_check_manifest ;;
+        rebase)         cmd_rebase ;;
+        build)          cmd_build ;;
+        verify)         cmd_verify ;;
+        describe)
+            if [ $# -gt 0 ] && printf '%s' "$1" | grep -qE '^[0-9]+$'; then cmd_describe "$1"; shift; else cmd_describe all; fi ;;
+        pr-body)
+            [ $# -gt 0 ] || usage
+            cmd_pr_body "$1"; shift ;;
+        push)           cmd_push ;;
+        update-prs)     cmd_update_prs ;;
+        *) err "unknown subcommand: $cmd"; usage ;;
+    esac
+done
