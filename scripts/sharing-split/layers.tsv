@@ -1,0 +1,7 @@
+1	split/01-foundations	Sharing 1/7: Transfer library (enums, comms, serialization, test infra)
+2	split/02-modes-economy	Sharing 2/7: Modes & economy boundary (presets, waterfill, share ledger)
+3	split/03-policy-core	Sharing 3/7: Policies (context -> policy -> policy_result -> action)
+4	split/04-transfer-runtime	Sharing 4/7: Transfer runtime (controllers, economy boundary, gadget swap)
+5	split/05-tech-keystone	Sharing 5/7: Tech Core / Keystone
+6	split/06-sharing-tab-ui	Sharing 6/7: Sharing Tab UI
+7	split/07-game-modes-export	Sharing 7/7: Game modes export (export widget, headless startscript, CI workflow)
