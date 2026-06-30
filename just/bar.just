@@ -283,3 +283,7 @@ setup-hooks:
         git -C "$BAR_DIR" config blame.ignoreRevsFile .git-blame-ignore-revs
         ok "Configured git blame to ignore formatting commits"
     fi
+
+# Rebuild/operate the file-partitioned sharing PR stack (see scripts/sharing-split/)
+sharing-split *ARGS:
+    @bash "{{DEVTOOLS_DIR}}/scripts/sharing-split/generate.sh" {{ARGS}}

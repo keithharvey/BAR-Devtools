@@ -33,7 +33,7 @@ PolicyResult ->
 
 Let's talk through each piece of that architecture in order.
 
-### PolicyResults
+### PolicyResult
 
 These are the central goal: establish a ["view model"](https://en.wikipedia.org/wiki/View_model) simplifying the game behavior matrix for downstream consumers. This construct is that view model. We're skipping a few steps here but don't worry we'll come back to those other execution steps in a second. 
 
@@ -61,7 +61,7 @@ Seeing PolicyType and a functional file scoped to a particular one is self-descr
 
 This part is pretty easy because it's just straight up service layer encapsulating state from an external API. It is the master of its own internal state and all downstream consumers talk to this layer, so it can be confident in its factoring that it is just ensuring its own internal state gets updated correctly and it responds to all engine requests faithful to the wishes expressed by that internal state engine.
 
-### Contexts (cached)
+### Context (cached inputs)
 
 So `PolicyResult` can only exist with boilerplate that enables them to have their inputs disconnected from the engine. You need a type to express your explicit inputs from the engine to allow hot-swappability and testability for your specific engine API surface. And you also need to build it performantly -- in Lua 5.1. That's where `ContextFactory` comes in. It's only job is to build structured, memoized state that can be cached from the engine, that the policies then use to initialize a per-team cache to drive the UI/everything else.
 
@@ -105,7 +105,7 @@ See team_transfer/resource_transfer_synced.lua
 
 It and supporting functions in the widget layer are all simply fluent PolicyResult enjoyers. Very simple, and very easy to rip out functional slices of behavior from things like `gui_chat` or `gui_advplayerslist` because you are just coding to the type already, anything that talks about `PolicyResult` is easy to rip out because it's inherently reactive and scoped.
 
-### Conclusion
+## 1/7 Specific PR Analysis
 
 So that's the meat of it. This PR specifically attempts to lay the ground work by introducing
 * all of the types -- including `PolicyType` and the `PolicyResult` types pulled into this system, the various inputs and outputs, internal and external, for the synced-layer team_transfer APIs
