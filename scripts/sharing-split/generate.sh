@@ -11,6 +11,9 @@ SELF_DIR="${DEVTOOLS_DIR}/scripts/sharing-split"
 
 BASE="${SHARING_BASE:-sharing_tab_mergeable}"
 TIP="${SHARING_TIP:-sharing_tab}"
+UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
+# Model for `describe` (generate + validate). Override if the id 404s.
+DESC_MODEL="${SHARING_DESC_MODEL:-claude-opus-4-6}"
 
 MANIFEST="${SELF_DIR}/manifest.tsv"   # <layer>\t<path>
 LAYERS_CONF="${SELF_DIR}/layers.tsv"  # <layer>\t<branch>\t<message>
@@ -19,6 +22,7 @@ git_bar() { git -C "$BAR" -c submodule.recurse=false "$@"; }
 step() { printf '\033[1;34m▸ %s\033[0m\n' "$*"; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*"; }
 err()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; }
+warn() { printf '\033[1;33m! %s\033[0m\n' "$*" >&2; }
 
 layer_branch()  { awk -F'\t' -v l="$1" '$1==l{print $2}' "$LAYERS_CONF"; }
 layer_message() { awk -F'\t' -v l="$1" '$1==l{print $3}' "$LAYERS_CONF"; }
@@ -126,10 +130,85 @@ cmd_verify() {
     git_bar checkout --force "$tip_branch" >/dev/null 2>&1
 }
 
+# ── rebase: fetch + rebase TIP onto upstream/master; base tracks master ──────
+cmd_rebase() {
+    step "Fetching $UPSTREAM_REMOTE"
+    git_bar fetch --no-recurse-submodules "$UPSTREAM_REMOTE"
+    local onto="$UPSTREAM_REMOTE/master"
+    git_bar rev-parse --verify "$onto" >/dev/null 2>&1 || { err "$onto not found"; exit 1; }
+    git_bar checkout --force "$TIP" >/dev/null 2>&1
+    step "Rebasing $TIP onto $onto"
+    if ! git_bar rebase "$onto"; then
+        git_bar rebase --abort 2>/dev/null || true
+        err "Conflict rebasing $TIP onto $onto — resolve by hand, then re-run."
+        exit 1
+    fi
+    git_bar branch -f "$BASE" "$onto"
+    ok "$TIP rebased onto $onto; $BASE set to $onto ($(git_bar rev-parse --short "$onto"))"
+}
+
+# ── describe: per-layer machine summary + fact-validation of the human prose ──
+# LLM-in-the-loop (the only non-deterministic step). Uses $DESC_MODEL and adopts
+# the human description's ubiquitous language. Writes <key>.summary.md and
+# <key>.validation.md next to the human <key>.md.
+cmd_describe() {
+    command -v claude >/dev/null 2>&1 || { err "claude CLI not on PATH"; exit 1; }
+    local target="${1:-all}" l
+    for l in $(layer_ids); do
+        [ "$target" != "all" ] && [ "$target" != "$l" ] && continue
+        local br key prev human diff out val
+        br=$(layer_branch "$l"); key=$(basename "$br")
+        [ "$l" -eq 1 ] && prev="$BASE" || prev=$(layer_branch $((l-1)))
+        git_bar rev-parse --verify "$br" >/dev/null 2>&1 || { warn "layer $l ($br) not built — skipping"; continue; }
+        diff=$(git_bar diff "$prev" "$br")
+        human=$(cat "${SELF_DIR}/descriptions/${key}.md" 2>/dev/null || echo "(none authored yet)")
+        step "describe layer $l ($br) via $DESC_MODEL"
+        out=$(claude -p --model "$DESC_MODEL" <<EOF
+You are generating and fact-checking the description for ONE pull request in a
+stacked split of a Beyond All Reason feature. The human author maintains a
+specific ubiquitous language (e.g. PolicyType, PolicyResult, behavior
+controller, view model) — adopt THEIR vocabulary; do not invent synonyms.
+
+PR layer $l: $(layer_message "$l")
+
+=== PR DIFF (what a reviewer sees) ===
+$diff
+
+=== HUMAN-AUTHORED DESCRIPTION ===
+$human
+
+Output EXACTLY two sections, each beginning with its marker line alone:
+
+===CLAUDE_DESCRIPTION===
+A 2-4 sentence factual summary of what THIS PR introduces, in the human
+author's ubiquitous language. Neutral and specific. Renders above the human prose.
+
+===VALIDATION===
+ONLY factual errors in the human description vs the diff: wrong symbol names,
+wrong file paths, references to functions/types absent from the diff, or claims
+that contradict the code (e.g. calling an action a policy). Terse bullets with a
+line ref. Write "none" if clean. Do NOT rewrite prose or critique style.
+EOF
+)
+        printf '%s\n' "$out" | awk '/^===CLAUDE_DESCRIPTION===/{f=1;next}/^===VALIDATION===/{f=0}f' \
+            > "${SELF_DIR}/descriptions/${key}.summary.md"
+        val=$(printf '%s\n' "$out" | awk '/^===VALIDATION===/{f=1;next}f')
+        printf '%s\n' "$val" > "${SELF_DIR}/descriptions/${key}.validation.md"
+        ok "  summary -> descriptions/${key}.summary.md"
+        if printf '%s' "$val" | grep -qiE '[a-z]' && ! printf '%s' "$val" | grep -qiE '^[[:space:]]*none\.?[[:space:]]*$'; then
+            warn "  $key.md — validation flagged:"; printf '%s\n' "$val" | sed 's/^/    /'
+        else
+            ok "  $key.md — factually clean"
+        fi
+    done
+}
+
 case "${1:-}" in
     gen-manifest)   cmd_gen_manifest ;;
     check)          cmd_check_manifest ;;
+    rebase)         cmd_rebase ;;
     build)          cmd_build ;;
     verify)         cmd_verify ;;
-    *) err "usage: generate.sh <gen-manifest|check|build|verify>"; exit 1 ;;
+    describe)       cmd_describe "${2:-all}" ;;
+    *) err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]>"; exit 1 ;;
 esac
