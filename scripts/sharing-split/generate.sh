@@ -120,17 +120,22 @@ cmd_verify() {
         err "assembled tip differs from $TIP:"; git_bar diff --stat "$TIP" "$tip_branch"; exit 1
     fi
     step "Per-layer busted (each PR must pass standalone)"
-    local l br
+    local l br failed=""
     for l in $(layer_ids); do
         br=$(layer_branch "$l")
         git_bar checkout --force "$br" >/dev/null 2>&1
-        if (cd "$BAR" && lx --lua-version 5.1 test >/dev/null 2>&1); then
+        # Retry once: the recoil-lua-library regen on the first run after a
+        # checkout can flake. Only a genuine failure repeats.
+        if (cd "$BAR" && lx --lua-version 5.1 test >/dev/null 2>&1) \
+            || (cd "$BAR" && lx --lua-version 5.1 test >/dev/null 2>&1); then
             ok "layer $l ($br): specs pass"
         else
             err "layer $l ($br): specs FAIL — a file may be homed later than a layer that needs it"
+            failed="$failed $l"
         fi
     done
     git_bar checkout --force "$tip_branch" >/dev/null 2>&1
+    [ -n "$failed" ] && { err "layers with failing specs:$failed"; exit 1; } || ok "all layers pass standalone"
 }
 
 # ── rebase: fetch + rebase TIP onto upstream/master; base tracks master ──────
