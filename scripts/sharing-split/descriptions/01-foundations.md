@@ -43,7 +43,7 @@ flowchart TD
     end
 
     Commands["«commands»<br/>GG.* action API<br/>executed within bounds set by PolicyResult"]
-    classDef iface stroke-dasharray:6 4,fill:#ffffff;
+    classDef iface fill:none,stroke:#888,stroke-width:2px,stroke-dasharray:6 4;
     class Commands iface
 
     Engine --> Controller
