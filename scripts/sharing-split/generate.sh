@@ -141,13 +141,19 @@ cmd_rebase() {
     git_bar rev-parse --verify "$onto" >/dev/null 2>&1 || { err "$onto not found"; exit 1; }
     git_bar checkout --force "$TIP" >/dev/null 2>&1
     step "Rebasing $TIP onto $onto"
+    # Leave the rebase IN PROGRESS on conflict (don't auto-abort) so it can be
+    # resolved in place: fix files, `git -C <BAR> rebase --continue`, then re-run
+    # the pipeline (skip the rebase step — it's done).
     if ! git_bar rebase "$onto"; then
-        git_bar rebase --abort 2>/dev/null || true
-        err "Conflict rebasing $TIP onto $onto — resolve by hand, then re-run."
+        err "Conflict rebasing $TIP onto $onto. Resolve the conflicts in $BAR,"
+        err "  then: git -C $BAR rebase --continue"
+        err "  then re-run the pipeline without 'rebase' (e.g. build verify push update-prs)."
         exit 1
     fi
     git_bar branch -f "$BASE" "$onto"
     ok "$TIP rebased onto $onto; $BASE set to $onto ($(git_bar rev-parse --short "$onto"))"
+    # Base moved, so the file->layer partition must be re-derived.
+    cmd_gen_manifest
 }
 
 # ── describe: per-layer machine summary + fact-validation of the human prose ──
