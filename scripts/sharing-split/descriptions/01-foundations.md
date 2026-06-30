@@ -25,16 +25,27 @@ Basically, it's:
 ```mermaid
 flowchart TD
     Engine[Engine]
-    Controller["behavior_controller<br/>(game_unit_transfer_controller, …)"]
-    Context["Context<br/>(cached)"]
-    Policy[Policy]
-    Result[PolicyResult]
-    Actions["Actions<br/>(user commands)"]
-    UI["UI<br/>(reads; executes within<br/>bounds set by PolicyResult)"]
 
-    Engine --> Controller --> Context --> Policy --> Result
-    Result --> Actions
-    Result --> UI
+    subgraph Synced
+        subgraph SL["Internal Service Layer"]
+            direction TB
+            Controller["behavior_controller<br/>(game_unit_transfer_controller, …)"]
+            Context["Context<br/>(cached)"]
+            Policy[Policy]
+            Result[PolicyResult]
+            Controller --> Context --> Policy --> Result
+        end
+        Gadgets["External gadgets"]
+    end
+
+    subgraph Unsynced
+        UI[UI]
+    end
+
+    Engine --> Controller
+    Result -->|published cache| Gadgets
+    Result -->|published cache| UI
+    UI -->|Actions / user commands<br/>within bounds set by PolicyResult| Controller
 ```
 
 Let's talk through each piece of that architecture in order.
