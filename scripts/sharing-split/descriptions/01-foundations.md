@@ -1,13 +1,13 @@
 
 
-## My [no LLM editor] thoughts
+# My [no LLM editor] Description
 
-### Intro
+## Intro
 So I'm going to review each line in these PRs, then write in my own words what is going on in an attempt to put a more human voice on this design. Going to try to keep them short and to the point, with the exception of this PR because I need to provide a little context to get people going on this train of thought.
 
 The core conceit here is that for a subset of existing game behavior, we own execution _end to end_. This is me applying my bag of tricks from doing this type of refactor to this type of system countless times. It is largely a UI problem to me, and my usual way to approach that category of problem borrows heavilly from reactive programming. This PR uses the combination of a service layer in the form of the `unit_transfer_controller` and `resource_transfer_controller` and then below that a policy pattern or game behavior in order to encapsulate state and categorize commonality between behaviors in our types at various points in our functional execution layer.
 
-### PolicyType
+## PolicyType
 
 The first real thing to understand is the `PolicyType` enum, which represents every type of behavior our modules can express:
 * metal_transfer
@@ -21,14 +21,20 @@ Note that this enum could easilly map ALL behavioral categories as part of a mor
 So we have PolicyType, but what are the other pieces of a unified game side execution in these categories?
 
 Basically, it's:
-```
-Engine ->
-behavior_controller (ie game_unit_transfer_controller, etc.)
-Context (cached) ->
-Policy ->
-PolicyResult ->
-   - Actions (user commands)
-   - UI (reads, execute commands within bounds set by PolicyResult)
+
+```mermaid
+flowchart TD
+    Engine[Engine]
+    Controller["behavior_controller<br/>(game_unit_transfer_controller, …)"]
+    Context["Context<br/>(cached)"]
+    Policy[Policy]
+    Result[PolicyResult]
+    Actions["Actions<br/>(user commands)"]
+    UI["UI<br/>(reads; executes within<br/>bounds set by PolicyResult)"]
+
+    Engine --> Controller --> Context --> Policy --> Result
+    Result --> Actions
+    Result --> UI
 ```
 
 Let's talk through each piece of that architecture in order.
