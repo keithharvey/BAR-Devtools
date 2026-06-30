@@ -29,11 +29,12 @@ flowchart TD
     subgraph Synced
         subgraph SL["Internal Service Layer"]
             direction TB
-            Controller["behavior_controller<br/>(game_unit_transfer_controller, …)"]
+            Controller["behavior_controller<br/>(game_unit_transfer_controller, …)<br/>executes commands within<br/>bounds set by PolicyResult"]
             Context["Context<br/>(cached)"]
             Policy[Policy]
             Result[PolicyResult]
             Controller --> Context --> Policy --> Result
+            Result -.->|bounds execution| Controller
         end
         Gadgets["External gadgets"]
     end
@@ -42,16 +43,16 @@ flowchart TD
         UI[UI]
     end
 
-    Commands["«commands»<br/>GG.* action API<br/>executed within bounds set by PolicyResult"]
+    Command["«command»<br/>GG.* action request<br/>(independent data type)"]
     classDef iface fill:none,stroke:#888,stroke-width:2px,stroke-dasharray:6 4;
-    class Commands iface
+    class Command iface
 
     Engine --> Controller
     Result -->|published cache| Gadgets
     Result -->|published cache| UI
-    Gadgets -.->|execute| Commands
-    UI -.->|execute| Commands
-    Commands -.->|mutates| Controller
+    Gadgets -.->|send| Command
+    UI -.->|send| Command
+    Command -.->|request| Controller
 ```
 
 Let's talk through each piece of that architecture in order.
