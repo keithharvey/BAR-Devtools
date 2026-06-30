@@ -1,0 +1,7 @@
+1	sharing/01-foundations	sharing_tab_mergeable	upstream	8125
+2	sharing/modes-economy	sharing/01-foundations	upstream	8126
+3	sharing_policy_core	sharing/modes-economy	origin	8123
+4	sharing/02-transfer-runtime	sharing_policy_core	upstream	8062
+5	sharing/03-tech-keystone	sharing/02-transfer-runtime	upstream	8063
+6	sharing/04-sharing-tab-ui	sharing/03-tech-keystone	upstream	8064
+7	sharing/05-game-modes-export	sharing/04-sharing-tab-ui	upstream	8095

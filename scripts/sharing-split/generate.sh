@@ -16,7 +16,10 @@ UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
 DESC_MODEL="${SHARING_DESC_MODEL:-claude-opus-4-6}"
 
 MANIFEST="${SELF_DIR}/manifest.tsv"   # <layer>\t<path>
-LAYERS_CONF="${SELF_DIR}/layers.tsv"  # <layer>\t<branch>\t<message>
+LAYERS_CONF="${SELF_DIR}/layers.tsv"  # <layer>\t<staging-branch>\t<message>
+PR_TARGETS="${SELF_DIR}/pr_targets.tsv"  # <layer>\t<real-branch>\t<base>\t<remote>\t<pr#>
+FORK_OWNER="${FORK_OWNER:-$(git -C "$BAR" remote get-url origin 2>/dev/null | sed -n 's|.*[:/]\([^/]*\)/.*|\1|p')}"
+STACK_ROOT_PR="${STACK_ROOT_PR:-5704}"
 
 git_bar() { git -C "$BAR" -c submodule.recurse=false "$@"; }
 step() { printf '\033[1;34m▸ %s\033[0m\n' "$*"; }
@@ -203,6 +206,81 @@ EOF
     done
 }
 
+# ── PR target accessors (pr_targets.tsv) ─────────────────────────────────────
+pr_branch() { awk -F'\t' -v l="$1" '$1==l{print $2}' "$PR_TARGETS"; }
+pr_base()   { awk -F'\t' -v l="$1" '$1==l{print $3}' "$PR_TARGETS"; }
+pr_remote() { awk -F'\t' -v l="$1" '$1==l{print $4}' "$PR_TARGETS"; }
+pr_num()    { awk -F'\t' -v l="$1" '$1==l{print $5}' "$PR_TARGETS"; }
+
+# ── stacked_split: the bottom-up nav block, current layer bolded ──────────────
+cmd_topology() {
+    local cur="${1:-}" l n msg line
+    echo "### 📚 Stacked split of #${STACK_ROOT_PR} — review bottom-up"
+    echo ""
+    local total; total=$(layer_ids | wc -l)
+    for l in $(layer_ids); do
+        n=$(pr_num "$l"); msg=$(layer_message "$l" | sed -E 's#^Sharing [0-9]+/[0-9]+: ##')
+        line="${l}/${total} · ${msg} (#${n})"
+        if [ "$l" = "$cur" ]; then echo "- **${line}** ← you are here"; else echo "- ${line}"; fi
+    done
+    echo ""
+    echo "Each PR is file-partitioned: every file appears in exactly one PR in its final \`${TIP}\` form, so each PR's diff is byte-identical to that branch. Regenerated deterministically by \`just bar::sharing-split\`."
+}
+
+# ── pr_body: stacked_split + claude_description (summary) + human_description ──
+cmd_pr_body() {
+    local l="$1" key human summary
+    key=$(basename "$(layer_branch "$l")")
+    cmd_topology "$l"
+    echo ""
+    summary="${SELF_DIR}/descriptions/${key}.summary.md"
+    [ -s "$summary" ] && { echo "#### Summary (LLM-generated, ${DESC_MODEL})"; echo ""; cat "$summary"; echo ""; }
+    human="${SELF_DIR}/descriptions/${key}.md"
+    [ -s "$human" ] && { echo "-----"; echo ""; cat "$human"; }
+}
+
+# ── push: promote split/* content to the real branches, bottom-up ────────────
+# Each real branch must exist on its PR head's remote AND on any remote where it
+# is used as a base. force-with-lease against the live SHA, then ls-remote verify.
+cmd_push() {
+    declare -A NEED
+    local l rb base remote
+    for l in $(layer_ids); do
+        rb=$(pr_branch "$l"); base=$(pr_base "$l"); remote=$(pr_remote "$l")
+        NEED["$rb"]+="$remote "
+        [ "$base" != "$BASE" ] && NEED["$base"]+="$remote "
+    done
+    git_bar fetch --no-recurse-submodules upstream origin >/dev/null 2>&1 || true
+    for l in $(layer_ids); do
+        rb=$(pr_branch "$l"); local src; src=$(layer_branch "$l")
+        local r; for r in $(echo "${NEED[$rb]}" | tr ' ' '\n' | sort -u | grep .); do
+            local old; old=$(git_bar ls-remote "$r" "refs/heads/$rb" | awk '{print $1}')
+            step "push $src -> $r/$rb ($(echo "${old:-new}" | cut -c1-10))"
+            if [ -n "$old" ]; then
+                git_bar push --force-with-lease="$rb:$old" "$r" "$src:refs/heads/$rb"
+            else
+                git_bar push "$r" "$src:refs/heads/$rb"
+            fi
+            local now; now=$(git_bar ls-remote "$r" "refs/heads/$rb" | awk '{print $1}')
+            [ "$now" = "$(git_bar rev-parse "$src")" ] && ok "  verified $r/$rb" || { err "  DRIFT: $r/$rb=$now != $src"; exit 1; }
+        done
+    done
+}
+
+# ── update-prs: push composed bodies + set bases via gh ──────────────────────
+cmd_update_prs() {
+    command -v gh >/dev/null 2>&1 || { err "gh not on PATH"; exit 1; }
+    local l n base body
+    for l in $(layer_ids); do
+        n=$(pr_num "$l"); base=$(pr_base "$l")
+        body="$BAR/.git/sharing-pr-${l}-body.md"
+        cmd_pr_body "$l" > "$body"
+        step "gh pr edit #$n (base $base)"
+        gh pr edit "$n" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$base"
+        ok "  #$n updated"
+    done
+}
+
 case "${1:-}" in
     gen-manifest)   cmd_gen_manifest ;;
     check)          cmd_check_manifest ;;
@@ -210,5 +288,8 @@ case "${1:-}" in
     build)          cmd_build ;;
     verify)         cmd_verify ;;
     describe)       cmd_describe "${2:-all}" ;;
-    *) err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]>"; exit 1 ;;
+    pr-body)        cmd_pr_body "${2:?layer required}" ;;
+    push)           cmd_push ;;
+    update-prs)     cmd_update_prs ;;
+    *) err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]|pr-body <layer>|push|update-prs>"; exit 1 ;;
 esac
