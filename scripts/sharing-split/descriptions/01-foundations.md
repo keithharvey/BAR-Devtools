@@ -98,7 +98,7 @@ Notice how they are stateless, and do complicated things. But the result is extr
 
 This same pattern is used throughout the service layer. We establish clear inputs and outputs in the form of types for a given behavior, and then ensure our execution code conforms to the boundaries established by the `PolicyResult`.
 
-See [`team_transfer/resource_transfer_synced.lua`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8123/changes#diff-390bcfbf7ba03de27a9d35497ae5674dddc6c1cffd429b1fb0a5129e41a1c34aR1)
+See [`team_transfer/unit_transfer_synced.lua`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8123/changes#diff-b048ccd604003f5a2f977cb8f714fef8946a7fd1fe13ee7e6c6eb7a375e65eecR42)
 
 ### UI
 
@@ -118,5 +118,5 @@ So that's the meat of it. This PR specifically attempts to lay the ground work b
 * things like the [unit_sharing_categories.lua](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-bf00ec6766332f4729b3f0641d039c18445027d75bb9e2e0f0307e22320a7736) is another classifier and used by features like "stun delay category" to target a specific unit "group".
 * you can tell I really like enums
 * this PR does contain 2 bug fixes:
-  - [fix: i18n.interpolate tolerates leftover % and arg-count mismatch](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7980), is also available as a standalone PR so it can land independently. If that merges first, rebase should auto-drop here.
+  - **MERGED** [fix: i18n.interpolate tolerates leftover % and arg-count mismatch](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7980), is also available as a standalone PR so it can land independently. If that merges first, rebase should auto-drop here.
   - a fix to [game_message.lua](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-1dcdcb85ca155909143362af51c33380517b78c4cc33355af5c39cfbb2df96e8R16), that was tied to my changes in gui_chat so I left it here.
