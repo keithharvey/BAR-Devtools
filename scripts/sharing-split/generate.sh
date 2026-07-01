@@ -138,26 +138,30 @@ cmd_verify() {
     [ -n "$failed" ] && { err "layers with failing specs:$failed"; exit 1; } || ok "all layers pass standalone"
 }
 
-# ── rebase: fetch + rebase TIP onto upstream/master; base tracks master ──────
-cmd_rebase() {
-    step "Fetching $UPSTREAM_REMOTE"
+# ── step 0: $BASE always tracks a freshly-fetched upstream/master ─────────────
+sync_base() {
+    step "Fetching $UPSTREAM_REMOTE; $BASE -> $UPSTREAM_REMOTE/master"
     git_bar fetch --no-recurse-submodules "$UPSTREAM_REMOTE"
+    git_bar rev-parse --verify "$UPSTREAM_REMOTE/master" >/dev/null 2>&1 \
+        || { err "$UPSTREAM_REMOTE/master not found"; exit 1; }
+    git_bar branch -f "$BASE" "$UPSTREAM_REMOTE/master" >/dev/null 2>&1
+}
+
+# ── rebase: rebase TIP onto upstream/master, then re-derive the partition ─────
+cmd_rebase() {
     local onto="$UPSTREAM_REMOTE/master"
-    git_bar rev-parse --verify "$onto" >/dev/null 2>&1 || { err "$onto not found"; exit 1; }
     git_bar checkout --force "$TIP" >/dev/null 2>&1
     step "Rebasing $TIP onto $onto"
-    # Leave the rebase IN PROGRESS on conflict (don't auto-abort) so it can be
-    # resolved in place: fix files, `git -C <BAR> rebase --continue`, then re-run
-    # the pipeline (skip the rebase step — it's done).
+    # Leave the rebase IN PROGRESS on conflict (don't auto-abort): fix files,
+    # `git -C <BAR> rebase --continue`, then re-run without 'rebase' — sync_base
+    # re-points $BASE and gen-manifest re-derives the partition.
     if ! git_bar rebase "$onto"; then
         err "Conflict rebasing $TIP onto $onto. Resolve the conflicts in $BAR,"
         err "  then: git -C $BAR rebase --continue"
-        err "  then re-run the pipeline without 'rebase' (e.g. build verify push update-prs)."
+        err "  then re-run without 'rebase' (e.g. gen-manifest build verify push update-prs)."
         exit 1
     fi
-    git_bar branch -f "$BASE" "$onto"
-    ok "$TIP rebased onto $onto; $BASE set to $onto ($(git_bar rev-parse --short "$onto"))"
-    # Base moved, so the file->layer partition must be re-derived.
+    ok "$TIP rebased onto $onto ($(git_bar rev-parse --short "$onto"))"
     cmd_gen_manifest
 }
 
@@ -300,6 +304,8 @@ cmd_update_prs() {
 
 usage() { err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]|pr-body <layer>|push|update-prs> ..."; exit 1; }
 [ $# -eq 0 ] && usage
+
+sync_base   # step 0: $BASE == freshly-fetched upstream/master before any subcommand
 
 # Run each subcommand in sequence (set -e stops on first failure), so the full
 # pipeline chains: generate.sh build verify describe push update-prs
