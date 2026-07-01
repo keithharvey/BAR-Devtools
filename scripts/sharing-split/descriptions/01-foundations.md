@@ -86,11 +86,11 @@ This gives a future developer an explicit understanding of the input data we nee
 
 ### Policies
 
-Policies produce `PolicyResult` and because we have a clearly input and output type, are extremely unit testable.
+Policies produce `PolicyResult` and because we have a clear input and output type, are extremely unit testable.
 
 Here is the
 * [UnitTransferPolicy](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8123/changes#diff-b048ccd604003f5a2f977cb8f714fef8946a7fd1fe13ee7e6c6eb7a375e65eecR14)
-* [ResourceTransferPolicy](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8123/changes#diff-390bcfbf7ba03de27a9d35497ae5674dddc6c1cffd429b1fb0a5129e41a1c34aR33)
+* [ResourceTransferPolicy](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8123/changes#diff-390bcfbf7ba03de27a9d35497ae5674dddc6c1cffd429b1fb0a5129e41a1c34aR106) - (a better example because it does more work)
 
 Notice how they are stateless, and do complicated things. But the result is extremely simple for consumers. We do as much work as we can here because it's cached. This reduces complexity for devs that just want to bring their own policy, or make simple modifications to ours. We bound the runtime cost by providing and caching the policies. We can be as expressive as we want on top of that, whether that's this implementation or something that actually builds a clean AST and is more opinionated internally.
 
@@ -102,7 +102,7 @@ See [`team_transfer/resource_transfer_synced.lua`](https://github.com/beyond-all
 
 ### UI
 
-It and supporting functions in the widget layer are all simply fluent PolicyResult enjoyers. Very simple, and very easy to rip out functional slices of behavior from things like [`gui_chat`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8064/changes#diff-50e9e809ac9691ea91cf6bb0ce6b1cced195ea150a9fdcf978972faaf9970ab0R1) or [`gui_advplayerslist`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8064/changes#diff-2036052d0b24abf7a07ed3763cf6b4e2bb6a0d44af63e9971963ccde0ba134a8R1) because you are just coding to the type already, anything that talks about `PolicyResult` is easy to rip out because it's inherently reactive and scoped.
+It and supporting functions in the widget layer are all simply fluent in `PolicyResult`. Very simple, and very easy to rip out functional slices of behavior from things like [`gui_chat`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8064/changes#diff-50e9e809ac9691ea91cf6bb0ce6b1cced195ea150a9fdcf978972faaf9970ab0R1) or [`gui_advplayerslist`](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8064/changes#diff-2036052d0b24abf7a07ed3763cf6b4e2bb6a0d44af63e9971963ccde0ba134a8R1) because you are just coding to the type already, anything that talks about `PolicyResult` is easy to rip out because it's inherently reactive and scoped.
 
 ## 1/7 Specific PR Analysis
 
@@ -114,5 +114,9 @@ So that's the meat of it. This PR specifically attempts to lay the ground work b
      - [DecideCommunicationCase](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-532460ec0d36855594added46d93334ed11cd80733c9e07623f9713007f4b25cR65)
      - [TooltipText](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-e9ec335d9f7e11b8c525ee9b2c3717ee2d50b9c461e0d5d01265ee1ea5a8d29cR59) - one function that generates every tooltip as it pertains to unit_transfer (e.g. when you hover over the button to do that with a given selection). It provides tooltip information _relevant_ to a given unit selection and `PolicyResult`, which allows it to be VERY specific for players that might be confused about a litany of configurations the game might be in during any given moment, without letting that complexity leak into gui_advplayerlist or gui_chat.
 
-I am SUPER proud of these implementations because they were the most difficult part of this refactor and "doing it right" if you have independently configurable mod options for a given behavior. So they got distilled down to a fine wine reduction of the problem space and I think represent a good demonstration of how much complexity you can disappear with this work.
+  I am SUPER proud of these implementations because they were the most difficult part of this refactor and "doing it right" if you have independently configurable mod options for a given behavior. So they got distilled down to a fine wine reduction of the problem space and I think represent a good demonstration of how much complexity you can disappear with this work.
 * things like the [unit_sharing_categories.lua](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-bf00ec6766332f4729b3f0641d039c18445027d75bb9e2e0f0307e22320a7736) is another classifier and used by features like "stun delay category" to target a specific unit "group".
+* you can tell I really like enums
+* this PR does contain 2 bug fixes:
+  - [fix: i18n.interpolate tolerates leftover % and arg-count mismatch](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7980), is also available as a standalone PR so it can land independently. If that merges first, rebase should auto-drop here.
+  - a fix to [game_message.lua](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8125/changes#diff-1dcdcb85ca155909143362af51c33380517b78c4cc33355af5c39cfbb2df96e8R16), that was tied to my changes in gui_chat so I left it here.

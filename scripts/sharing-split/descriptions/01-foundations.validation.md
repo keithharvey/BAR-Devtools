@@ -1,0 +1,3 @@
+- "Here is the \* UnitTransferPolicy \* ResourceTransferPolicy" — neither module appears in this PR's diff; presumably introduced in a later layer of the stack.
+- "See team_transfer/resource_transfer_synced.lua" — this file is absent from the diff; a reviewer of PR 1/7 cannot follow the reference.
+- none of the other claims checked (type names, field lists, function names, file paths, enum values) contradict the diff.
