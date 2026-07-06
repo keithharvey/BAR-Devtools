@@ -100,7 +100,8 @@ cmd_build() {
                 git_bar rm -q --ignore-unmatch "$f" >/dev/null
             fi
         done < <(files_for "$l")
-        git_bar add -A
+        # exclude the regen-volatile submodule; its gitlink comes from BASE/manifest, not the dirty worktree
+        git_bar add -A -- . ':(exclude)recoil-lua-library'
         git_bar commit -q -m "$msg"
         git_bar branch -f "$br" HEAD
         ok "layer $l -> $br ($(git_bar rev-parse --short HEAD))"
@@ -267,6 +268,12 @@ cmd_push() {
         [ "$base" != "$BASE" ] && NEED["$base"]+="$remote "
     done
     git_bar fetch --no-recurse-submodules upstream origin >/dev/null 2>&1 || true
+    # $BASE is layer 1's PR base and tracks upstream/master; NEED skips it, so publish it here.
+    local now
+    step "publish $BASE -> $UPSTREAM_REMOTE/$BASE ($(git_bar rev-parse --short "$BASE"))"
+    git_bar push "$UPSTREAM_REMOTE" "$BASE:refs/heads/$BASE" || { err "  push $BASE failed (non-fast-forward?)"; exit 1; }
+    now=$(git_bar ls-remote "$UPSTREAM_REMOTE" "refs/heads/$BASE" | awk '{print $1}')
+    [ "$now" = "$(git_bar rev-parse "$BASE")" ] && ok "  verified $UPSTREAM_REMOTE/$BASE" || { err "  DRIFT: $UPSTREAM_REMOTE/$BASE=$now"; exit 1; }
     for l in $(layer_ids); do
         rb=$(pr_branch "$l"); local src; src=$(layer_branch "$l")
         local r; for r in $(echo "${NEED[$rb]}" | tr ' ' '\n' | sort -u | grep .); do
