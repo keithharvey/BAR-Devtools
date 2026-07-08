@@ -203,10 +203,12 @@ missing global multiplies the error count by 10–100x. Full list:
 `z_axis`, `SIG_WALK`, `UNITSCRIPT_DIR`
 
 **Engine/sandbox:** `widgetHandler`, `gadgetHandler`, `Commands`, `fontHandler`,
-`LUAUI_DIRNAME`, `socket`, `pairsByKeys`, `SendToUnsynced`, `CallAsTeam`, `handler`,
-`lowerkeys`, `addon`, `gcinfo`, `loadlib`
+`LUAUI_DIRNAME`, `socket`, `pairsByKeys`, `ipairs_reverse`, `SendToUnsynced`,
+`CallAsTeam`, `handler`, `lowerkeys`, `addon`, `gcinfo`, `loadlib`
 
-**BAR-specific:** `GameCMD`, `Scenario`, `game_engine`, `SG`, `CMD_AREA_MEX`,
+**BAR-specific:** `BAR` (the detached-module namespace itself — every `BAR.X`
+read errors without it), `I18N_PATH` (set globally by the i18n loader before
+`init.lua` includes), `GameCMD`, `Scenario`, `game_engine`, `SG`, `CMD_AREA_MEX`,
 `CMD_WANT_CLOAK`, `CMD_WANTED_SPEED`, `UpdateGuishaderBlur`, `GadgetCrashingAircraft`,
 `CALLIN_MAP`, `CommandNames`, `ExplosionDefs`
 
