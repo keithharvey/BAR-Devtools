@@ -363,19 +363,56 @@ host_exec() {
 
 git_bar() { host_exec git -C "$BAR" "$@"; }
 
-gh_host() { host_exec gh "$@"; }
+# gh lives in non-standard host paths (linuxbrew, ~/.local/bin) that
+# distrobox-host-exec strips from PATH — resolve an absolute path like claude.
+GH_HOST_BIN=""
+resolve_host_gh() {
+    if [[ -n "${GH_BIN_OVERRIDE:-}" ]]; then echo "$GH_BIN_OVERRIDE"; return 0; fi
+    local c
+    for c in "$HOME/.local/bin/gh" /home/linuxbrew/.linuxbrew/bin/gh \
+             /usr/local/bin/gh /usr/bin/gh "$HOME/.npm-global/bin/gh"; do
+        host_exec test -x "$c" && { echo "$c"; return 0; }
+    done
+    host_exec which gh 2>/dev/null || true
+}
+
+gh_host() {
+    [[ -z "$GH_HOST_BIN" ]] && GH_HOST_BIN="$(resolve_host_gh)"
+    if [[ -z "$GH_HOST_BIN" ]]; then
+        err "gh CLI not found on host (checked ~/.local/bin, linuxbrew, /usr/bin)."
+        err "  override: GH_BIN_OVERRIDE=/abs/path/to/gh"
+        exit 1
+    fi
+    host_exec "$GH_HOST_BIN" "$@"
+}
 
 stylua_pass() {
     step "Running stylua..."
     (cd "$BAR" && stylua .)
 }
 
+# Warm the shared lux cache once — a cold `lx test` triggers a networked
+# `lx sync` with no timeout that can hang the whole pipeline.
+warm_lux_cache() {
+    step "Warming lux dependency cache..."
+    if (cd "$BAR" && timeout 600 lx --lua-version 5.1 sync </dev/null); then
+        ok "lux cache warm"
+    else
+        warn "lx sync did not finish (timeout/offline) — per-branch tests may stall or be marked failed"
+    fi
+}
+
 run_tests() {
     local branch="$1"
     step "Running unit tests on $branch..."
-    if (cd "$BAR" && lx --lua-version 5.1 test); then
+    local rc=0
+    (cd "$BAR" && timeout 600 lx --lua-version 5.1 test </dev/null) || rc=$?
+    if [[ "$rc" == "0" ]]; then
         TEST_RESULTS["$branch"]="pass"
         ok "Units passed on $branch"
+    elif [[ "$rc" == "124" ]]; then
+        TEST_RESULTS["$branch"]="fail"
+        warn "Units timed out on $branch (cold lx sync stalling on the network?)"
     else
         TEST_RESULTS["$branch"]="fail"
         warn "Units failed on $branch"
@@ -1468,6 +1505,8 @@ git_bar -c submodule.recurse=false fetch --no-recurse-submodules origin
 # submodule perpetually dirty. Tell git to ignore it so status/add/checkout
 # don't stage or trip over the generated content during branch building.
 git_bar config submodule.recoil-lua-library.ignore all 2>/dev/null || true
+
+[[ "$DO_SKIP_GENERATION" == "true" ]] || warm_lux_cache
 
 if [[ "$DO_SKIP_GENERATION" == "true" ]]; then
     step "--skip-generation: skipping ALL branch rebuilds (PR bodies only)"
