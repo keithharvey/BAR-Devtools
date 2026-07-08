@@ -282,8 +282,6 @@ fmt-mig: require-bar require-codemod
     "{{CODEMOD_BIN}}" rename-aliases --path "$BAR_DIR" --exclude common/luaUtilities
     step "detach-bar-modules transform..."
     "{{CODEMOD_BIN}}" detach-bar-modules --path "$BAR_DIR" --exclude common/luaUtilities
-    step "spring-split transform..."
-    "{{CODEMOD_BIN}}" spring-split --path "$BAR_DIR" --library "$BAR_DIR/recoil-lua-library/src" --exclude common/luaUtilities
     step "stylua..."
     (cd "$BAR_DIR" && lx --lua-version 5.1 exec stylua .)
     ok "fmt-mig complete"
