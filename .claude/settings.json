@@ -5,7 +5,10 @@
       "Bash(just --list)",
       "Bash(just --list *)",
       "Bash(just --evaluate)",
-      "Bash(just doctor)"
+      "Bash(just doctor)",
+      "Bash(podman ps)",
+      "Bash(podman ps *)",
+      "Bash(podman logs *)"
     ]
   }
 }
