@@ -44,6 +44,8 @@ origin/master
  ├─ mig-bracket            (bracket-to-dot)
  ├─ mig-rename-aliases     (rename-aliases)
  ├─ mig-detach-bar-modules (detach-bar-modules)
+ ├─ mig-spring-split       (spring-split)
+ ├─ mig-i18n               (i18n-kikito)
  └─ mig                    (all transforms sequentially)
 ```
 
@@ -77,6 +79,7 @@ Deduplicates prereqs across transforms, cherry-picks all unique ones, then runs 
 |--------|-----------|---------|
 | `stylua` | `fmt` | `.stylua.toml`, `.styluaignore`, CI |
 | `detach-bar-modules-env` | `detach_bar_modules` | System table entries, `.luarc.json` globals, type stubs |
+| `lux-i18n` | `i18n_kikito` | Add `kikito/i18n.lua` lux dependency |
 
 ## Diagnosing Failures
 
@@ -1072,7 +1075,7 @@ that rarely fail (fonts, VBOs).
 | `types/Spring.lua` | BAR-side `UnitScriptTable`/`ObjectRenderingTable` extensions, temp data classes | `unit_script.lua`, `unitrendering.lua` |
 | `types/GameCMD.lua` | `GameCMD` class | `modules/customcommands.lua` |
 | `types/Game.lua` | `Game.Commands`, `Game.CustomCommands` | `init.lua` + `modules/commands.lua` |
-| `types/BAR.lua` | `BAR` namespace: `I18N` (`I18NModule`), `Utilities`, `Debug` (`BARDebug`), `Lava`, `GetModOptionsCopy` — all fields of the `BAR` class | `common/springFunctions.lua`, `modules/i18n/i18n.lua`, `common/springUtilities/debug.lua`, `modules/lava.lua`, `common/springOverrides.lua` |
+| `types/BAR.lua` | `BAR` namespace: `I18N` (`I18NModule`), `Utilities`, `Debug` (`BARDebug`), `Lava`, `GetModOptionsCopy` — all fields of the `BAR` class | `common/springFunctions.lua`, `modules/i18n/i18n.lua` (kikito), `common/springUtilities/debug.lua`, `modules/lava.lua`, `common/springOverrides.lua` |
 | `types/Gadget.lua` | `Gadget`, `gadget`, `GG` | Engine gadget handler |
 | `types/Widget.lua` | `Widget`, `widget`, `WG` | Engine widget handler |
 | `types/Addon.lua` | `Addon`, `AddonInfo`, `addon` | Engine addon base |

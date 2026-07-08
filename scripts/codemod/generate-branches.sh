@@ -103,6 +103,8 @@ declare -A PR_BASE=(
     [mig-bracket]="fmt"
     [mig-rename-aliases]="fmt"
     [mig-detach-bar-modules]="fmt"
+    [mig-i18n]="fmt"
+    [mig-spring-split]="fmt"
     [mig-integration-tests]="fmt"
     [mig-busted-types]="fmt"
 )
@@ -129,7 +131,7 @@ enter_distrobox "$@"
 # Branches cherry-picked onto every leaf and mig branch before any transform.
 PREFIX_BRANCHES=("fix_stylua" "engine-builders-env")
 
-TRANSFORMS=("fmt" "bracket_to_dot" "rename_aliases" "detach_bar_modules" "integration_tests" "busted_types")
+TRANSFORMS=("fmt" "bracket_to_dot" "rename_aliases" "detach_bar_modules" "i18n_kikito" "spring_split" "integration_tests" "busted_types")
 
 # -- fmt (stylua) -------------------------------------------------------------
 
@@ -217,6 +219,53 @@ describe_detach_bar_modules() {
     cat <<'EOF'
 # detach-bar-modules -- moves I18N, Utilities, Debug, Lava, GetModOptionsCopy off the Spring table
 bar-lua-codemod detach-bar-modules --path "$BAR_DIR" --exclude common/luaUtilities
+EOF
+}
+
+# -- spring-split --------------------------------------------------------------
+
+spring_split_branch="mig-spring-split"
+spring_split_commit="gen(bar_codemod): spring-split"
+spring_split_pr="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7290"
+# spring-split-env carries the busted-VM Engine shim (spec_helper.lua). The
+# runtime Engine table is engine-provided (RecoilEngine LuaParser/Game::LoadDefs);
+# the shim only stands in for the no-engine test VM.
+spring_split_prereq="spring-split-env"
+spring_split_summary='Splits the monolithic `Spring` table into `Engine.Synced` / `Engine.Unsynced` / `Engine.Shared`, rewriting each `Spring.X` to the bucket that actually declares `X` per the generated API stubs — so synced/unsynced-only calls type-check in the right context.'
+spring_split_description='See [RecoilEngine#2799](https://github.com/beyond-all-reason/RecoilEngine/pull/2799) for the Engine.Synced/Engine.Unsynced/Engine.Shared type split on the engine side.'
+
+run_spring_split() {
+    local lib="$BAR/recoil-lua-library/library"
+    [ -d "$lib" ] || lib="$BAR/recoil-lua-library/src"
+    "$CODEMOD" spring-split --path "$BAR" --library "$lib" --exclude common/luaUtilities
+}
+
+describe_spring_split() {
+    cat <<'EOF'
+# spring-split - split Spring into Engine.Synced, Engine.Unsynced, and Engine.Shared
+bar-lua-codemod spring-split --path "$BAR_DIR" --library "$BAR_DIR/recoil-lua-library/src" --exclude common/luaUtilities
+EOF
+}
+
+# -- i18n-kikito ---------------------------------------------------------------
+
+i18n_kikito_branch="mig-i18n"
+i18n_kikito_commit="gen(bar_codemod): i18n-kikito"
+i18n_kikito_pr="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7291"
+i18n_kikito_pr_title="[Deps] i18n-kikito"
+i18n_kikito_prereq="lux-i18n"
+i18n_kikito_description=""
+i18n_kikito_summary='Swaps the vendored `gajop/i18n` fork for upstream [`kikito/i18n.lua`](https://github.com/kikito/i18n.lua) and rewrites the unit-name translation call sites to the new API.'
+
+run_i18n_kikito() {
+    rm -rf "$BAR/modules/i18n/i18nlib"
+    "$CODEMOD" i18n-kikito --path "$BAR"
+}
+
+describe_i18n_kikito() {
+    cat <<'EOF'
+# i18n-kikito - replace vendored gajop/i18n fork with kikito/i18n.lua, rewrite call sites
+bar-lua-codemod i18n-kikito --path "$BAR_DIR"
 EOF
 }
 
@@ -446,6 +495,10 @@ museum_description() {
             echo "deprecated Spring API aliases (GetMyTeamID → GetLocalTeamID, etc.)" ;;
         "gen(bar_codemod): detach-bar-modules")
             echo "Spring.{I18N,Utilities,Debug,Lava,GetModOptionsCopy} → BAR.{…} namespace" ;;
+        "gen(bar_codemod): spring-split")
+            echo "Spring.X → Engine.Synced/Engine.Unsynced/Engine.Shared.X per @env" ;;
+        "gen(bar_codemod): i18n-kikito")
+            echo "vendored gajop/i18n → kikito/i18n.lua via lux dependency" ;;
         "gen(hand): integration tests return-table shape")
             echo "luaui/Tests + luaui/TestsExamples → return-table shape; dbg_test_runner reads hooks from the returned table" ;;
         "gen(hand): inline luassert and busted LuaCATS types")
@@ -603,7 +656,7 @@ ensure_fmt_prereq() {
     # on the prereq branches being "content-only" vs master — if a prereq ever
     # encodes a formatting intent that disagrees with stylua, we'd silently
     # lose it. That's acceptable for the curated prereqs we have today
-    # (integration-tests-curated, busted-types-curated,
+    # (integration-tests-curated, busted-types-curated, lux-i18n,
     # detach-bar-modules-env).
     # --empty=drop: the recoil-lua-library submodule-bump commit lands empty
     # when the submodule is already at the bumped gitlink; drop it, don't halt.
@@ -787,7 +840,7 @@ abort_stuck_git_state() {
 #   3. Running the LLM type-triage fan-out (drives just bar::check errors → 0).
 #   4. Committing whatever the workers edited as one gen(llm) commit.
 #
-# The source branch is user-maintained, like detach-bar-modules-env.
+# The source branch is user-maintained, like detach-bar-modules-env / lux-i18n.
 # Bootstrap: just author env(llm): commits on top of some existing mig-ish
 # base. The only shape requirement is that env commits live contiguously at
 # the tip of $LLM_SOURCE_BRANCH with subjects prefixed `env(llm):`.
@@ -1486,8 +1539,8 @@ else
     sync_origin_master
 
     step "Rebasing prefix and prereq branches onto origin/master..."
-    # Prereq/prefix branches are small, hand-maintained
-    # (detach-bar-modules-env). A merge conflict means upstream changes have
+    # Prereq/prefix branches are small, hand-maintained (lux-i18n,
+    # detach-bar-modules-env). A merge conflict means upstream changes have
     # diverged from the branch's assumptions — silently resolving via `-X
     # theirs` or accepting auto-merge has historically produced bloated
     # commits that pulled in unrelated upstream changes. Fail fast so the
