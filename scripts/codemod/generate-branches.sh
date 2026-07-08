@@ -1442,7 +1442,24 @@ sync_origin_master() {
     ok "  $base synced to canonical."
 }
 
+# Front-load LLM-backend auth. op (CREDENTIALS_RUNNER) resolves keys before this
+# script starts, so validate now — an unattended run must fail in seconds, not
+# after minutes of branch building. Skipped when the LLM step won't run.
+preflight_credentials() {
+    [[ "$DO_SKIP_GENERATION" == "true" ]] && return 0
+    case "${BACKEND:-claude}" in
+        openai)
+            [[ -n "${OPENAI_API_KEY:-}" ]] && return 0
+            err "BACKEND=openai but OPENAI_API_KEY is not set."
+            err "  Wrap the run so op resolves it up front (see CREDENTIALS_RUNNER in just/bar.just)."
+            exit 1
+            ;;
+    esac
+}
+
 # ─── Run ─────────────────────────────────────────────────────────────────────
+
+preflight_credentials
 
 step "Fetching origin..."
 git_bar -c submodule.recurse=false fetch --no-recurse-submodules origin
