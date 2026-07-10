@@ -253,8 +253,18 @@ $human
 Output EXACTLY two sections, each beginning with its marker line alone:
 
 ===CLAUDE_DESCRIPTION===
-A 2-4 sentence factual summary of what THIS PR introduces, in the human
-author's ubiquitous language. Neutral and specific. Renders above the human prose.
+A tight, scannable summary of what THIS PR introduces, in the human author's
+ubiquitous language (reuse THEIR symbols; no synonyms, no filler, no restating
+the human prose). Format as Markdown:
+
+- A one-line bold lead stating what the PR does in a single clause.
+- Then 2-5 bullets, each a concrete change: the type, function, view model, or
+  module it introduces / moves / renames, and what that piece is now responsible
+  for. Cite the real identifiers from the diff as inline code spans.
+- If it is a pure move or rename with no behavior change, say so in one bullet.
+
+Aim for a reviewer grasping the PR's shape in ~10 seconds. Neutral and specific;
+renders above the human prose, so complement it rather than repeat it.
 
 ===VALIDATION===
 ONLY factual errors in the human description vs the diff: wrong symbol names,
@@ -293,6 +303,15 @@ cmd_topology() {
         line="${l}/${total} · ${msg} (#${n})"
         if [ "$l" = "$cur" ]; then echo "- **${line}** ← you are here"; else echo "- ${line}"; fi
     done
+    echo ""
+    local tip_l tip_n; tip_l=$(layer_ids | tail -1); tip_n=$(pr_num "$tip_l")
+    if [ "$cur" = "$tip_l" ]; then
+        echo "> [!IMPORTANT]"
+        echo "> **This PR is the stack tip.** Once every layer is approved, land the whole stack here: change this PR's base to \`master\` (Edit, next to the title), then merge through the GitHub UI. This branch contains every lower layer's commits, so a merge commit marks the lower PRs merged automatically (a squash leaves them to close manually)."
+    else
+        echo "> [!WARNING]"
+        echo "> Review and approve here, but **don't merge this PR individually** — the whole stack lands in one GitHub-UI merge of the tip (#${tip_n}); merge instructions live there."
+    fi
     echo ""
     echo "Each PR is file-partitioned: every file appears in exactly one PR in its final \`${TIP}\` form, so each PR's diff is byte-identical to that branch. Regenerated deterministically by \`just bar::sharing-split\`."
 }
