@@ -13,12 +13,13 @@ DEVTOOLS_DIR="${DEVTOOLS_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.."; pwd)}
 BAR="${BAR_DIR:-${DEVTOOLS_DIR}/Beyond-All-Reason}"
 SELF_DIR="${DEVTOOLS_DIR}/scripts/sharing-split"
 
-BASE="${SHARING_BASE:-sharing_tab_mergeable}"
 TIP="${SHARING_TIP:-sharing_tab}"
 UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
 # Migrated line the stack sits on: origin/fmt-llm until #8235 lands, then
-# upstream/master (rebase after flipping).
-BASE_TRACK="${SHARING_BASE_TRACK:-origin/fmt-llm}"
+# upstream/master + master (rebase after flipping). BASE is the ref we read;
+# BASE_BRANCH is its upstream publish name (layer-1 + root PR base).
+BASE="${SHARING_BASE:-origin/fmt-llm}"
+BASE_BRANCH="${SHARING_BASE_BRANCH:-fmt-llm}"
 # Model for `describe` (generate + validate). Override if the id 404s.
 DESC_MODEL="${SHARING_DESC_MODEL:-claude-opus-4-6}"
 
@@ -150,14 +151,14 @@ cmd_verify() {
 }
 
 
-# ── step 0: $BASE always tracks freshly-fetched $BASE_TRACK ──────────────────
+# ── step 0: fetch so $BASE is fresh before any subcommand ────────────────────
 sync_base() {
-    step "Fetching; $BASE -> $BASE_TRACK"
+    step "Fetching $UPSTREAM_REMOTE; base $BASE"
     git_bar fetch --no-recurse-submodules "$UPSTREAM_REMOTE"
-    [ "${BASE_TRACK%%/*}" = "$UPSTREAM_REMOTE" ] || git_bar fetch --no-recurse-submodules "${BASE_TRACK%%/*}"
-    git_bar rev-parse --verify "$BASE_TRACK" >/dev/null 2>&1 \
-        || { err "$BASE_TRACK not found"; exit 1; }
-    git_bar branch -f "$BASE" "$BASE_TRACK" >/dev/null 2>&1
+    case "$BASE" in
+        */*) [ "${BASE%%/*}" = "$UPSTREAM_REMOTE" ] || git_bar fetch --no-recurse-submodules "${BASE%%/*}" ;;
+    esac
+    git_bar rev-parse --verify "$BASE" >/dev/null 2>&1 || { err "$BASE not found"; exit 1; }
 }
 
 preflight() {
@@ -171,7 +172,7 @@ preflight() {
 cmd_rebase() {
     local n; n=$(layer_ids | wc -l)
     git_bar checkout --force "$TIP" >/dev/null 2>&1
-    step "Rebasing $TIP ($n commits) onto $BASE ($BASE_TRACK)"
+    step "Rebasing $TIP ($n commits) onto $BASE"
     # Leave the rebase IN PROGRESS on conflict (don't auto-abort): fix files,
     # `git -C <BAR> rebase --continue`, then re-run without 'rebase' — sync_base
     # re-points $BASE and gen-manifest re-derives the partition.
@@ -306,15 +307,19 @@ cmd_push() {
     for l in $(layer_ids); do
         rb=$(pr_branch "$l"); base=$(pr_base "$l"); remote=$(pr_remote "$l")
         NEED["$rb"]+="$remote "
-        [ "$base" != "$BASE" ] && NEED["$base"]+="$remote "
+        [ "$base" != "$BASE_BRANCH" ] && NEED["$base"]+="$remote "
     done
     git_bar fetch --no-recurse-submodules upstream origin >/dev/null 2>&1 || true
-    # $BASE is layer 1's PR base and tracks upstream/master; NEED skips it, so publish it here.
-    local now
-    step "publish $BASE -> $UPSTREAM_REMOTE/$BASE ($(git_bar rev-parse --short "$BASE"))"
-    git_bar push "$UPSTREAM_REMOTE" "$BASE:refs/heads/$BASE" || { err "  push $BASE failed (non-fast-forward?)"; exit 1; }
-    now=$(git_bar ls-remote "$UPSTREAM_REMOTE" "refs/heads/$BASE" | awk '{print $1}')
-    [ "$now" = "$(git_bar rev-parse "$BASE")" ] && ok "  verified $UPSTREAM_REMOTE/$BASE" || { err "  DRIFT: $UPSTREAM_REMOTE/$BASE=$now"; exit 1; }
+    # $BASE_BRANCH is layer 1's + the root PR's base; NEED skips it, so publish it here.
+    local now base_old; base_old=$(git_bar ls-remote "$UPSTREAM_REMOTE" "refs/heads/$BASE_BRANCH" | awk '{print $1}')
+    step "publish $BASE -> $UPSTREAM_REMOTE/$BASE_BRANCH ($(echo "${base_old:-new}" | cut -c1-10))"
+    if [ -n "$base_old" ]; then
+        git_bar push --force-with-lease="$BASE_BRANCH:$base_old" "$UPSTREAM_REMOTE" "$BASE:refs/heads/$BASE_BRANCH"
+    else
+        git_bar push "$UPSTREAM_REMOTE" "$BASE:refs/heads/$BASE_BRANCH"
+    fi
+    now=$(git_bar ls-remote "$UPSTREAM_REMOTE" "refs/heads/$BASE_BRANCH" | awk '{print $1}')
+    [ "$now" = "$(git_bar rev-parse "$BASE")" ] && ok "  verified $UPSTREAM_REMOTE/$BASE_BRANCH" || { err "  DRIFT: $UPSTREAM_REMOTE/$BASE_BRANCH=$now"; exit 1; }
     # $TIP is the root PR's head — publish to origin
     local tip_old; tip_old=$(git_bar ls-remote origin "refs/heads/$TIP" | awk '{print $1}')
     step "push $TIP -> origin/$TIP ($(echo "${tip_old:-new}" | cut -c1-10))"
@@ -357,8 +362,8 @@ cmd_update_prs() {
             warn "  #$n FAILED — continuing"; failed="$failed $n"
         fi
     done
-    # Root PR (merge vehicle): base $BASE while in review; STACK_ROOT_BASE=master for merge week.
-    local rbase="${STACK_ROOT_BASE:-$BASE}"
+    # Root PR (merge vehicle): base $BASE_BRANCH while in review; STACK_ROOT_BASE=master for merge week.
+    local rbase="${STACK_ROOT_BASE:-$BASE_BRANCH}"
     body="$BAR/.git/sharing-pr-root-body.md"
     { cmd_topology root
       if [ -s "${SELF_DIR}/descriptions/root.md" ]; then echo ""; echo "-----"; echo ""; cat "${SELF_DIR}/descriptions/root.md"; fi
@@ -375,7 +380,7 @@ cmd_update_prs() {
 usage() { err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]|pr-body <layer>|push|update-prs> ..."; exit 1; }
 [ $# -eq 0 ] && usage
 
-sync_base   # step 0: $BASE == freshly-fetched $BASE_TRACK before any subcommand
+sync_base   # step 0: $BASE freshly fetched before any subcommand
 preflight
 
 # Run each subcommand in sequence (set -e stops on first failure), so the full

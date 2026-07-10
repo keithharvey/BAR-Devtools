@@ -1,4 +1,4 @@
-1	sharing/01-foundations	sharing_tab_mergeable	upstream	8125
+1	sharing/01-foundations	fmt-llm	upstream	8125
 2	sharing/modes-economy	sharing/01-foundations	upstream	8126
 3	sharing_policy_core	sharing/modes-economy	origin	8123
 4	sharing/02-transfer-runtime	sharing_policy_core	upstream	8062
