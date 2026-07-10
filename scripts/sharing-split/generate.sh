@@ -25,6 +25,7 @@ LAYERS_CONF="${SELF_DIR}/layers.tsv"  # <layer>\t<staging-branch>\t<message>
 PR_TARGETS="${SELF_DIR}/pr_targets.tsv"  # <layer>\t<real-branch>\t<base>\t<remote>\t<pr#>
 FORK_OWNER="${FORK_OWNER:-$(git -C "$BAR" remote get-url origin 2>/dev/null | sed -n 's|.*[:/]\([^/]*\)/.*|\1|p')}"
 STACK_ROOT_PR="${STACK_ROOT_PR:-5704}"
+STACK_FMT_PR="${STACK_FMT_PR:-8235}"  # type-migration capstone; sharing merges BEFORE it
 
 git_bar() { git -C "$BAR" -c submodule.recurse=false "$@"; }
 step() { printf '\033[1;34m▸ %s\033[0m\n' "$*"; }
@@ -139,6 +140,35 @@ cmd_verify() {
     done
     git_bar checkout --force "$tip_branch" >/dev/null 2>&1
     [ -n "$failed" ] && { err "layers with failing specs:$failed"; exit 1; } || ok "all layers pass standalone"
+}
+
+# ── fold: bake fmt-mig into the stack's NEW files, rewrite $TIP in place ─────
+# One-time (then a fixed point: fmt-mig is idempotent, so the regen fmt-mig
+# commit stops touching new files). Pre-existing files stay unmigrated in the
+# layers — folding them would swamp PR diffs with whole-file reformat noise.
+cmd_fold() {
+    step "Folding fmt-mig into new-file content of $TIP (backup: ${TIP}_prefold)"
+    git_bar branch -f "${TIP}_prefold" "$TIP"
+    git_bar checkout --force -B _sharing_fold "$TIP" >/dev/null 2>&1
+    (cd "$DEVTOOLS_DIR" && just bar::fmt-mig)
+    local f
+    while read -r f; do
+        git_bar cat-file -e "$BASE:$f" 2>/dev/null || git_bar add -- "$f"
+    done < <(cut -f2 "$MANIFEST")
+    git_bar checkout -- .   # index holds only new-file migration; drop the rest
+    if git_bar diff --cached --quiet; then
+        warn "fmt-mig is already folded — no new-file changes"
+    else
+        git_bar commit -q -m "fold fmt-mig into new files"
+    fi
+    local real_tip="$TIP"
+    TIP=_sharing_fold
+    cmd_build
+    TIP="$real_tip"
+    git_bar branch -f "$TIP" "$(layer_branch "$(layer_ids | tail -1)")"
+    git_bar checkout --force "$TIP" >/dev/null 2>&1
+    git_bar branch -D _sharing_fold >/dev/null
+    ok "$TIP rewritten with folded layers ($(git_bar rev-parse --short "$TIP"))"
 }
 
 # ── step 0: $BASE always tracks a freshly-fetched upstream/master ─────────────
@@ -307,7 +337,9 @@ cmd_topology() {
     local tip_l tip_n; tip_l=$(layer_ids | tail -1); tip_n=$(pr_num "$tip_l")
     if [ "$cur" = "$tip_l" ]; then
         echo "> [!IMPORTANT]"
-        echo "> **This PR is the stack tip.** Once every layer is approved, land the whole stack here: change this PR's base to \`master\` (Edit, next to the title), then merge through the GitHub UI. This branch contains every lower layer's commits, so a merge commit marks the lower PRs merged automatically (a squash leaves them to close manually)."
+        echo "> **This PR is the stack tip — the whole stack lands here, in one merge.** Once every layer is approved: change this PR's base to \`master\` (Edit, next to the title), then merge through the GitHub UI. This branch contains every lower layer's commits, so a merge commit marks the lower PRs merged automatically (a squash leaves them to close manually)."
+        echo ">"
+        echo "> **Merge order vs the type-migration stack (#${STACK_FMT_PR}):** this stack goes first. The migration regenerates from \`master\` and absorbs whatever is merged, so nothing here needs fmt-mig or any other follow-up from the merger."
     else
         echo "> [!WARNING]"
         echo "> Review and approve here, but **don't merge this PR individually** — the whole stack lands in one GitHub-UI merge of the tip (#${tip_n}); merge instructions live there."
@@ -382,7 +414,7 @@ cmd_update_prs() {
     [ -n "$failed" ] && { err "PRs not updated:$failed (re-run update-prs)"; exit 1; } || ok "all PRs updated"
 }
 
-usage() { err "usage: generate.sh <rebase|gen-manifest|check|build|verify|describe [layer]|pr-body <layer>|push|update-prs> ..."; exit 1; }
+usage() { err "usage: generate.sh <rebase|gen-manifest|check|build|fold|verify|describe [layer]|pr-body <layer>|push|update-prs> ..."; exit 1; }
 [ $# -eq 0 ] && usage
 
 sync_base   # step 0: $BASE == freshly-fetched upstream/master before any subcommand
@@ -398,6 +430,7 @@ while [ $# -gt 0 ]; do
         check)          cmd_check_manifest ;;
         rebase)         cmd_rebase ;;
         build)          cmd_build; NEED_REGEN=1 ;;
+        fold)           cmd_fold; NEED_REGEN=1 ;;
         verify)         cmd_verify ;;
         describe)
             if [ $# -gt 0 ] && printf '%s' "$1" | grep -qE '^[0-9]+$'; then cmd_describe "$1"; shift; else cmd_describe all; fi ;;
