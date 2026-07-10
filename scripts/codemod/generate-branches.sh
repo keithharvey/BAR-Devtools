@@ -56,6 +56,11 @@ MIG_PR="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7229"
 # the PR bodies stay focused on their own step.
 TRACKING_ISSUE="https://github.com/beyond-all-reason/Beyond-All-Reason/issues/7408"
 
+# Bulk-migration workflow docs (how to run fmt-mig, the dated migration log).
+# Points at the docs PR until it lands on master; then swap to the README anchor
+# (…/blob/master/README.md#bulk-migrations). Linked from every PR body.
+BULK_MIGRATIONS_DOC="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8237"
+
 # Tooling PR — the BAR-Devtools side that ships generate-branches.sh,
 # llm-type-triage.sh, the codemod transforms, SKILL.md, and the just recipes.
 DEVTOOLS_PR="https://github.com/beyond-all-reason/BAR-Devtools/pull/17"
@@ -415,6 +420,36 @@ pr_link() {
     fi
 }
 
+# Topology-table cell for a branch; bolds + flags the row for the PR being
+# rendered so a reviewer instantly sees which one they're on.
+branch_cell() {
+    local label="$1" url="$2" current="$3"
+    local cell; cell="$(pr_link "$label" "$url")"
+    if [[ "$label" == "$current" ]]; then
+        echo "👉 **$cell** — you are here"
+    else
+        echo "$cell"
+    fi
+}
+
+# Merge-safety banner prepended to every stacked PR body. A reviewer merging an
+# intermediate PR breaks the stack topology (happened once — a premature merge
+# into fmt-llm-source). The whole cleanup lands by merging only the tip, fmt-llm.
+pr_merge_warning() {
+    local current="${1:-}"
+    echo "> [!WARNING]"
+    if [[ "$current" == "$LLM_BRANCH" ]]; then
+        echo "> **This is the stack tip.** Merging this PR lands the entire type-error"
+        echo "> cleanup — every branch below it. Do **not** merge the intermediate PRs on"
+        echo "> their own; that breaks the stack topology."
+    else
+        echo "> **Don't merge this PR by itself** — it's one slice of a stacked review."
+        echo "> Merging an intermediate PR breaks the stack. The whole cleanup lands by"
+        echo "> merging **only the tip, [\`fmt-llm\`]($LLM_PR)**, which pulls in every branch below it."
+    fi
+    echo ""
+}
+
 unit_status() {
     local branch="$1"
     local status="${TEST_RESULTS["$branch"]:-n/a}"
@@ -493,11 +528,12 @@ generate_museum_table() {
 }
 
 generate_topology() {
+    local current="${1:-}"
     echo "### Branch Topology"
     echo ""
-    echo "All branches in the [BAR type-error cleanup]($TRACKING_ISSUE) stack. Regenerated deterministically by [\`just bar::fmt-mig-generate\`]($DEVTOOLS_PR). *Generated $(date -u +"%Y-%m-%d %H:%M:%S UTC").*"
+    echo "All branches in the [BAR type-error cleanup]($TRACKING_ISSUE) stack — see [Bulk Migrations]($BULK_MIGRATIONS_DOC) for the migration log and how to run \`just bar::fmt-mig\`. Regenerated deterministically by [\`just bar::fmt-mig-generate\`]($DEVTOOLS_PR). *Generated $(date -u +"%Y-%m-%d %H:%M:%S UTC").*"
     echo ""
-    echo "**Leaves** — each targets \`master\`, mergeable independently:"
+    echo "**Leaves** — each isolates one transform's diff vs \`fmt\`:"
     echo ""
     echo "| Branch | Command | Diff vs parent | Units |"
     echo "|--------|---------|------|-------|"
@@ -523,24 +559,26 @@ generate_topology() {
             *)
                 command="\`bar-lua-codemod ${transform//_/-}\`" ;;
         esac
-        echo "| $(pr_link "$branch" "$pr_url") | $command | $stats | $(unit_status "$branch") |"
+        echo "| $(branch_cell "$branch" "$pr_url" "$current") | $command | $stats | $(unit_status "$branch") |"
     done
     echo ""
     echo "**Rollups** — composite branches stacking the leaves and (for \`fmt-llm\`) the env + LLM layers:"
     echo ""
     echo "| Branch | Diff vs \`master\` | Diff vs parent | Units |"
     echo "|--------|------|------|-------|"
-    echo "| $(pr_link "mig" "$MIG_PR") | $(diff_stat origin/master mig) | $(diff_stat fmt mig) | $(unit_status mig) |"
-    echo "| $(pr_link "$LLM_SOURCE_BRANCH" "$LLM_SOURCE_PR") | $(diff_stat origin/master "$LLM_SOURCE_BRANCH") | $(diff_stat mig "$LLM_SOURCE_BRANCH") | $(unit_status "$LLM_SOURCE_BRANCH") |"
-    echo "| $(pr_link "$LLM_BRANCH" "$LLM_PR") | $(diff_stat origin/master "$LLM_BRANCH") | $(diff_stat "$LLM_SOURCE_BRANCH" "$LLM_BRANCH") | $(unit_status "$LLM_BRANCH") |"
+    echo "| $(branch_cell "mig" "$MIG_PR" "$current") | $(diff_stat origin/master mig) | $(diff_stat fmt mig) | $(unit_status mig) |"
+    echo "| $(branch_cell "$LLM_SOURCE_BRANCH" "$LLM_SOURCE_PR" "$current") | $(diff_stat origin/master "$LLM_SOURCE_BRANCH") | $(diff_stat mig "$LLM_SOURCE_BRANCH") | $(unit_status "$LLM_SOURCE_BRANCH") |"
+    echo "| $(branch_cell "$LLM_BRANCH" "$LLM_PR" "$current") | $(diff_stat origin/master "$LLM_BRANCH") | $(diff_stat "$LLM_SOURCE_BRANCH" "$LLM_BRANCH") | $(unit_status "$LLM_BRANCH") |"
 }
 
 generate_leaf_pr_body() {
     local transform="$1" output_file="$2"
-    local description summary
+    local description summary branch
     description=$(tvar "$transform" "description")
     summary=$(tvar "$transform" "summary")
+    branch=$(tvar "$transform" "branch")
 
+    pr_merge_warning "$branch"
     echo "Part of [BAR type-error cleanup]($TRACKING_ISSUE). Rebuilds idempotently from \`master\` via [\`just bar::fmt-mig-generate\`]($DEVTOOLS_PR)."
     echo ""
     if [[ -n "$summary" ]]; then
@@ -555,15 +593,16 @@ generate_leaf_pr_body() {
         echo "$description"
     fi
     echo ""
-    generate_topology
+    generate_topology "$branch"
 }
 
 generate_mig_pr_body() {
     local _output_file="$1"  # unused; output bundle was previously inlined here
 
+    pr_merge_warning "mig"
     echo "Part of [BAR type-error cleanup]($TRACKING_ISSUE). Combined deterministic transforms — what \`master\` looks like with every leaf applied sequentially."
     echo ""
-    generate_topology
+    generate_topology "mig"
 }
 
 # ─── Build phase (no PR body generation — branches must all exist first) ─────
@@ -999,6 +1038,7 @@ generate_all_pr_bodies() {
 }
 
 generate_llm_source_pr_body() {
+    pr_merge_warning "$LLM_SOURCE_BRANCH"
     echo "Part of [BAR type-error cleanup]($TRACKING_ISSUE). Human-curated env layer that prepares the codebase for the LLM type-fix pass."
     echo ""
     echo "This branch carries:"
@@ -1010,13 +1050,14 @@ generate_llm_source_pr_body() {
     echo ""
     echo "The fix recipes the subsequent LLM pass ($LLM_PR) uses are catalogued in [\`SKILL.md\`]($SKILL_MD_URL) — same rulebook that guides the subagents."
     echo ""
-    generate_topology
+    generate_topology "$LLM_SOURCE_BRANCH"
 }
 
 generate_llm_pr_body() {
     local summary_file
     summary_file="$BAR/.git/llm-triage-summary.txt"
 
+    pr_merge_warning "$LLM_BRANCH"
     echo "Part of [BAR type-error cleanup]($TRACKING_ISSUE). Final stage: deterministic transforms + env layer + LLM type-fix pass."
     echo ""
     echo "LLM workers apply the categorized fix recipes in [\`SKILL.md\`]($SKILL_MD_URL) — each category maps an \`emmylua_check\` error pattern to an idempotent recipe."
@@ -1029,7 +1070,7 @@ generate_llm_pr_body() {
         echo '```'
         echo ''
     fi
-    generate_topology
+    generate_topology "$LLM_BRANCH"
 }
 
 # Simpler variant of generate_topology for the tracking issue — drops the
