@@ -11,9 +11,9 @@
 1	common/luaUtilities/team_transfer/unit_transfer_comms.lua
 1	luarules/gadgets/game_message.lua
 1	modes/sharing_mode_enums.lua
+1	spec/builders/engine_synced_builder.lua
 1	spec/builders/index.lua
 1	spec/builder_specs/team_builder_spec.lua
-1	spec/builders/spring_synced_builder.lua
 1	spec/builders/team_builder.lua
 1	spec/common/luaUtilities/team_transfer/policy_events_spec.lua
 1	spec/common/luaUtilities/team_transfer/unit_sharing_categories_spec.lua
@@ -76,8 +76,6 @@
 4	luarules/gadgets/unit_cheat_no_waste.lua
 4	luarules/gadgets/unit_geo_upgrade_reclaimer.lua
 4	luarules/gadgets/unit_mex_upgrade_reclaimer.lua
-4	luarules/gadgets/unit_prevent_share_load.lua
-4	luarules/gadgets/unit_prevent_share_self_d.lua
 4	luarules/gadgets/unit_scenario_loadout.lua
 4	luarules/gadgets/unit_zombies.lua
 4	luaui/Tests/team_transfer/test_resource_transfer.lua
