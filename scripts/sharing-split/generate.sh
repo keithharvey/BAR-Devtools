@@ -159,6 +159,12 @@ sync_base() {
         */*) [ "${BASE%%/*}" = "$UPSTREAM_REMOTE" ] || git_bar fetch --no-recurse-submodules "${BASE%%/*}" ;;
     esac
     git_bar rev-parse --verify "$BASE" >/dev/null 2>&1 || { err "$BASE not found"; exit 1; }
+    local drift
+    drift=$(git_bar rev-list --count "$(git_bar merge-base "$BASE" "$UPSTREAM_REMOTE/master")..$UPSTREAM_REMOTE/master")
+    if [ "$drift" -gt 0 ]; then
+        warn "$BASE's master snapshot is $drift commit(s) behind $UPSTREAM_REMOTE/master"
+        warn "  the stack (and QA builds of $TIP) won't see them until fmt-mig-generate + rebase"
+    fi
 }
 
 preflight() {
