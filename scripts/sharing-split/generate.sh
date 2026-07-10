@@ -120,6 +120,9 @@ cmd_build() {
     git_bar checkout --force "$(layer_branch "$(layer_ids | tail -1)")" >/dev/null 2>&1
     git_bar branch -D _sharing_build >/dev/null 2>&1 || true
     cmd_verify
+    # normalize: absorb fixup commits so $TIP stays exactly the N layer commits
+    git_bar branch -f "$TIP" "$(layer_branch "$(layer_ids | tail -1)")"
+    ok "$TIP normalized to the assembled stack ($(git_bar rev-parse --short "$TIP"))"
 }
 
 # ── verify: tip tree identical + each layer self-contained (busted) ──────────
