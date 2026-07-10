@@ -2,18 +2,13 @@
 
 ## PRs
 
-Stacked — merge bottom-up. Each PR's own diff is scoped to its layer; stack navigation is on each PR.
+Stacked — merge bottom-up. Each PR's own diff is scoped to its layer; merge the branch [tip](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8235) into master when satisfied with the individual layers.
 
 - [ ] [**fmt** — StyLua formatting](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7199)
 - [ ] [**mig** — combined deterministic transforms](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7229)
 - [ ] [**fmt-llm-source** — hand-curated env layer (emmylua config, types, manual fixes)](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7447)
-- [ ] [**fmt-llm** — LLM type-fix capstone](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7407)
+- [ ] [**fmt-llm** — LLM type-fix capstone](https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8235)
 - [ ] [Script / tooling PR (BAR-Devtools)](https://github.com/beyond-all-reason/BAR-Devtools/pull/17)
-- [ ] [Recoil PR (lua-doc-extractor wiring + missing type decorators)](https://github.com/beyond-all-reason/RecoilEngine/pull/2799)
-    - [ ] [CircuitAI — `zk` branch](https://github.com/rlcevg/CircuitAI/pull/136)
-    - [ ] [CircuitAI — `barbarian` branch](https://github.com/rlcevg/CircuitAI/pull/137)
-
-> **Important:** Do not run `just bar::fmt-mig` until `fmt` has merged. Running it earlier reformats the entire codebase on your branch (~200k lines).
 
 <!-- GENERATED:BRANCH_TOPOLOGY -->
 
