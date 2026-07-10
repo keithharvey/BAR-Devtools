@@ -31,7 +31,8 @@ MANIFEST="${SELF_DIR}/manifest.tsv"   # <layer>\t<path>
 LAYERS_CONF="${SELF_DIR}/layers.tsv"  # <layer>\t<staging-branch>\t<message>
 PR_TARGETS="${SELF_DIR}/pr_targets.tsv"  # <layer>\t<real-branch>\t<base>\t<remote>\t<pr#>
 FORK_OWNER="${FORK_OWNER:-$(git -C "$BAR" remote get-url origin 2>/dev/null | sed -n 's|.*[:/]\([^/]*\)/.*|\1|p')}"
-STACK_ROOT_PR="${STACK_ROOT_PR:-5704}"
+STACK_ROOT_PR="${STACK_ROOT_PR:-5704}"          # root PR: head $TIP, the merge vehicle
+STACK_ROOT_BASE="${STACK_ROOT_BASE:-}"          # set to master for merge week; defaults to $BASE
 STACK_FMT_PR="${STACK_FMT_PR:-8235}"  # type-migration capstone; merges before this stack
 
 git_bar() { git -C "$BAR" -c submodule.recurse=false "$@"; }
@@ -373,7 +374,11 @@ pr_num()    { awk -F'\t' -v l="$1" '$1==l{print $5}' "$PR_TARGETS"; }
 # ── stacked_split: the bottom-up nav block, current layer bolded ──────────────
 cmd_topology() {
     local cur="${1:-}" l n msg line
-    echo "### 📚 Stacked split of #${STACK_ROOT_PR} — review bottom-up"
+    if [ "$cur" = "root" ]; then
+        echo "### 📚 Reviewed via the file-partitioned split — bottom-up"
+    else
+        echo "### 📚 Stacked split of #${STACK_ROOT_PR} — review bottom-up"
+    fi
     echo ""
     local total; total=$(layer_ids | wc -l)
     for l in $(layer_ids); do
@@ -382,13 +387,12 @@ cmd_topology() {
         if [ "$l" = "$cur" ]; then echo "- **${line}** ← you are here"; else echo "- ${line}"; fi
     done
     echo ""
-    local tip_l tip_n; tip_l=$(layer_ids | tail -1); tip_n=$(pr_num "$tip_l")
-    if [ "$cur" = "$tip_l" ]; then
+    if [ "$cur" = "root" ]; then
         echo "> [!IMPORTANT]"
-        echo "> **This PR is the stack tip — the whole stack lands here, in one merge.** Merge order: the type-migration stack (#${STACK_FMT_PR}) goes first; this stack is already built on the migrated base, so nothing here changes when it lands. Once #${STACK_FMT_PR} is in and every layer is approved: change this PR's base to \`master\` (Edit, next to the title), then merge through the GitHub UI. This branch contains every lower layer's commits, so a merge commit marks the lower PRs merged automatically (a squash leaves them to close manually)."
+        echo "> **This PR is the merge vehicle for the whole feature — review happens in the split PRs above.** Its tree is byte-identical to the assembled split tip. Merge order: the type-migration stack (#${STACK_FMT_PR}) lands first; then this PR's base flips to \`master\` (the diff doesn't change — the stack is already built on the migrated base) and it merges through the GitHub UI. The split PRs are closed afterwards; their content is contained here."
     else
         echo "> [!WARNING]"
-        echo "> Review and approve here, but **don't merge this PR individually** — the whole stack lands in one GitHub-UI merge of the tip (#${tip_n}); merge instructions live there."
+        echo "> Review and approve here, but **don't merge this PR** — the whole feature lands in one GitHub-UI merge of the root PR #${STACK_ROOT_PR} (byte-identical to the assembled tip) once the type-migration stack (#${STACK_FMT_PR}) is in. Merge instructions live on #${STACK_ROOT_PR}."
     fi
     echo ""
     echo "Each PR is file-partitioned: every file appears in exactly one PR in its final \`${TIP}\` form, so each PR's diff is byte-identical to that branch. Regenerated deterministically by \`just bar::sharing-split\`."
@@ -425,6 +429,16 @@ cmd_push() {
     git_bar push "$UPSTREAM_REMOTE" "$BASE:refs/heads/$BASE" || { err "  push $BASE failed (non-fast-forward?)"; exit 1; }
     now=$(git_bar ls-remote "$UPSTREAM_REMOTE" "refs/heads/$BASE" | awk '{print $1}')
     [ "$now" = "$(git_bar rev-parse "$BASE")" ] && ok "  verified $UPSTREAM_REMOTE/$BASE" || { err "  DRIFT: $UPSTREAM_REMOTE/$BASE=$now"; exit 1; }
+    # $TIP is the root PR's head — publish to origin
+    local tip_old; tip_old=$(git_bar ls-remote origin "refs/heads/$TIP" | awk '{print $1}')
+    step "push $TIP -> origin/$TIP ($(echo "${tip_old:-new}" | cut -c1-10))"
+    if [ -n "$tip_old" ]; then
+        git_bar push --force-with-lease="$TIP:$tip_old" origin "$TIP:refs/heads/$TIP"
+    else
+        git_bar push origin "$TIP:refs/heads/$TIP"
+    fi
+    now=$(git_bar ls-remote origin "refs/heads/$TIP" | awk '{print $1}')
+    [ "$now" = "$(git_bar rev-parse "$TIP")" ] && ok "  verified origin/$TIP" || { err "  DRIFT: origin/$TIP=$now"; exit 1; }
     for l in $(layer_ids); do
         rb=$(pr_branch "$l"); local src; src=$(layer_branch "$l")
         local r; for r in $(echo "${NEED[$rb]}" | tr ' ' '\n' | sort -u | grep .); do
@@ -457,6 +471,18 @@ cmd_update_prs() {
             warn "  #$n FAILED — continuing"; failed="$failed $n"
         fi
     done
+    # Root PR (merge vehicle): base $BASE while in review; STACK_ROOT_BASE=master for merge week.
+    local rbase="${STACK_ROOT_BASE:-$BASE}"
+    body="$BAR/.git/sharing-pr-root-body.md"
+    { cmd_topology root
+      if [ -s "${SELF_DIR}/descriptions/root.md" ]; then echo ""; echo "-----"; echo ""; cat "${SELF_DIR}/descriptions/root.md"; fi
+    } > "$body"
+    step "gh pr edit #$STACK_ROOT_PR (root, base $rbase)"
+    if gh pr edit "$STACK_ROOT_PR" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$rbase"; then
+        ok "  #$STACK_ROOT_PR updated"
+    else
+        warn "  #$STACK_ROOT_PR FAILED (closed? reopen it) — continuing"; failed="$failed $STACK_ROOT_PR"
+    fi
     [ -n "$failed" ] && { err "PRs not updated:$failed (re-run update-prs)"; exit 1; } || ok "all PRs updated"
 }
 
