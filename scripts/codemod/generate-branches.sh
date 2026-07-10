@@ -23,7 +23,7 @@ FORK_OWNER="${FORK_OWNER:-$(git -C "$BAR" remote get-url "$FORK_REMOTE" 2>/dev/n
 # Branches hosted directly on the canonical repo ($UPSTREAM_REMOTE,
 # beyond-all-reason), with same-repo PRs. Everything else lives on the fork
 # ($FORK_REMOTE) and its PRs are cross-repo.
-# fmt-llm-source must be in this set: PR #7407's base is
+# fmt-llm-source must be in this set: PR #8235's base is
 # beyond-all-reason:fmt-llm-source, so the canonical copy has to track local or
 # the capstone PR goes DIRTY against a stale base even when topology is sound.
 UPSTREAM_BRANCHES_RE='^(fmt|mig|fmt-llm|fmt-llm-source)$'
@@ -80,7 +80,7 @@ SKILL_MD_URL="https://github.com/beyond-all-reason/BAR-Devtools/pull/17/changes#
 # same anchor walk the old build_fmt_llm used), with -Xtheirs + stylua_pass
 # to reconcile formatting divergence.
 #
-# PR #7447 (base=mig) shows just the env layer. PR #7407 (base=fmt-llm-source)
+# PR #7447 (base=mig) shows just the env layer. PR #8235 (base=fmt-llm-source)
 # shows just the LLM commit, because build_fmt_llm branches $LLM_BRANCH off
 # $LLM_SOURCE_BRANCH rather than cherry-picking onto mig.
 LLM_SOURCE_BRANCH="${LLM_SOURCE_BRANCH:-fmt-llm-source}"
@@ -88,7 +88,7 @@ LLM_SOURCE_PR="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7447"
 LLM_SOURCE_PR_TITLE="[Types] LLM env layer (emmylua config, type stubs, manual fixes)"
 LLM_BRANCH="fmt-llm"
 LLM_COMMIT_PREFIX="gen(llm): type-error triage"
-LLM_PR="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/7407"
+LLM_PR="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8235"
 LLM_PR_TITLE="[Types] LLM-driven type-error transform capstone"
 
 # ─── Stacked-PR base overrides ──────────────────────────────────────────────
@@ -887,7 +887,7 @@ build_fmt_llm() {
 
     step "Building $LLM_BRANCH: $LLM_SOURCE_BRANCH + LLM commit..."
     # Branch from $LLM_SOURCE_BRANCH (not mig) so $LLM_BRANCH physically contains
-    # its commits — PR #7407's diff (base=$LLM_SOURCE_BRANCH) scopes to the LLM
+    # its commits — PR #8235's diff (base=$LLM_SOURCE_BRANCH) scopes to the LLM
     # commit alone.
     git_bar checkout --force -B "$LLM_BRANCH" "$LLM_SOURCE_BRANCH"
 
@@ -1296,7 +1296,7 @@ push_branches() {
     # Topology invariant: $LLM_BRANCH must be stacked on the current
     # $LLM_SOURCE_BRANCH tip. If fmt-llm-source was rebuilt without rebuilding
     # fmt-llm (e.g., --skip-generation, or --llm-only with a stale local
-    # fmt-llm-source), the stale fmt-llm would force-push cleanly and PR #7407
+    # fmt-llm-source), the stale fmt-llm would force-push cleanly and PR #8235
     # would silently go DIRTY against the new base. verify_pushed only checks
     # local==remote, so it can't catch this — guard before push.
     if git_bar rev-parse --verify "$LLM_SOURCE_BRANCH" >/dev/null 2>&1 \
@@ -1306,7 +1306,7 @@ push_branches() {
         if ! git_bar merge-base --is-ancestor "$src_tip" "$LLM_BRANCH"; then
             err "$LLM_BRANCH is not a descendant of $LLM_SOURCE_BRANCH ($src_tip)."
             err "fmt-llm-source was rebuilt without rebuilding fmt-llm — refusing"
-            err "to push (would leave PR #7407 with merge conflicts against the"
+            err "to push (would leave PR #8235 with merge conflicts against the"
             err "regenerated base)."
             err ""
             err "Re-run without --skip-generation, or with --llm-only, to rebuild"
@@ -1329,7 +1329,7 @@ push_branches() {
         verify_pushed "$r" "${refs[@]}"
     done
 
-    # The rollup PRs (mig #7229, fmt-llm-source #7447, fmt-llm #7407) were
+    # The rollup PRs (mig #7229, fmt-llm-source #7447, fmt-llm #8235) were
     # opened cross-fork with head=$FORK_OWNER:<branch>. GitHub's PR head ref
     # lives on the fork, not origin, so pushing only to origin leaves the PR
     # showing a stale head SHA (and therefore the old pre-topology-fix diff).
