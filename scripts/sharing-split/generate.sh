@@ -2,6 +2,10 @@
 # Deterministically rebuild the 7-PR sharing stack by file partition.
 # Each file is assigned to exactly one layer and materialized in its final
 # (TIP) form, so every file in every PR is byte-identical to TIP.
+# TIP also carries two regen-volatile commits (fmt-mig result + merge of
+# origin/fmt-llm) — dropped before every run, rebuilt after runs that include
+# build — dogfooding the contributor migration flow. The stack is built from
+# the 7 real commits only.
 # Called by: just bar::sharing-split <gen-manifest|build|verify> [--push] [--update-prs]
 set -euo pipefail
 
@@ -12,6 +16,7 @@ SELF_DIR="${DEVTOOLS_DIR}/scripts/sharing-split"
 BASE="${SHARING_BASE:-sharing_tab_mergeable}"
 TIP="${SHARING_TIP:-sharing_tab}"
 UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
+REGEN_MARK="[sharing-split regen]"  # subject prefix of the volatile fmt commits on TIP
 # Model for `describe` (generate + validate). Override if the id 404s.
 DESC_MODEL="${SHARING_DESC_MODEL:-claude-opus-4-6}"
 
@@ -83,9 +88,6 @@ cmd_check_manifest() {
 # ── build: assemble the 7 commits, each materializing its layer's files ──────
 cmd_build() {
     cmd_check_manifest
-    [ -n "$(git_bar status --porcelain | grep -v recoil-lua-library)" ] && {
-        err "BAR tree dirty — commit/stash first"; exit 1; }
-
     step "Building stack on $BASE (final content from $TIP)"
     git_bar checkout --force -B _sharing_build "$BASE" >/dev/null 2>&1
 
@@ -146,6 +148,58 @@ sync_base() {
     git_bar rev-parse --verify "$UPSTREAM_REMOTE/master" >/dev/null 2>&1 \
         || { err "$UPSTREAM_REMOTE/master not found"; exit 1; }
     git_bar branch -f "$BASE" "$UPSTREAM_REMOTE/master" >/dev/null 2>&1
+}
+
+# ── regen commits: TIP = 7 real commits + fmt-mig + merge origin/fmt-llm ─────
+strip_regen() {
+    if git_bar rev-parse -q --verify MERGE_HEAD >/dev/null \
+        && grep -qsF "$REGEN_MARK" "$(git_bar rev-parse --absolute-git-dir)/MERGE_MSG"; then
+        step "Aborting in-progress regen merge"
+        git_bar merge --abort
+    fi
+    [ -n "$(git_bar status --porcelain | grep -v recoil-lua-library)" ] && {
+        err "BAR tree dirty — commit/stash first (sharing-split rewrites $TIP every run)"; exit 1; }
+    local n=0
+    while git_bar log -1 --format=%s "$TIP~$n" 2>/dev/null | grep -qF "$REGEN_MARK"; do n=$((n+1)); done
+    if [ "$n" -gt 0 ]; then
+        step "Dropping $n regen commit(s) from $TIP"
+        if [ "$(git_bar rev-parse --abbrev-ref HEAD)" = "$TIP" ]; then
+            git_bar reset --hard -q "$TIP~$n"
+        else
+            git_bar branch -f "$TIP" "$TIP~$n"
+        fi
+    fi
+    git_bar log --format=%s "$BASE..$TIP" | grep -qF "$REGEN_MARK" && {
+        err "regen commits buried under real commits on $TIP — rebase your work below them"; exit 1; }
+    return 0
+}
+
+regen_tip() {
+    step "Regenerating $TIP fmt commits (fmt-mig, merge origin/fmt-llm) — the contributor migration flow"
+    git_bar fetch --no-recurse-submodules origin || warn "fetch origin failed — using cached origin/fmt-llm"
+    git_bar rev-parse --verify origin/fmt-llm >/dev/null 2>&1 || { err "origin/fmt-llm not found"; exit 1; }
+    git_bar checkout --force "$TIP" >/dev/null 2>&1
+    (cd "$DEVTOOLS_DIR" && just bar::fmt-mig)
+    git_bar add -A -- . ':(exclude)recoil-lua-library'
+    if git_bar diff --cached --quiet; then
+        warn "fmt-mig produced no changes"
+    else
+        git_bar commit -q -m "$REGEN_MARK fmt-mig"
+    fi
+    # rerere records conflict resolutions once and replays them on every regen
+    git_bar config rerere.enabled true
+    git_bar config rerere.autoupdate true
+    if git_bar merge -m "$REGEN_MARK merge origin/fmt-llm" origin/fmt-llm >/dev/null; then
+        :
+    elif [ -z "$(git_bar diff --name-only --diff-filter=U)" ]; then
+        git_bar commit -q --no-edit
+        ok "merge conflicts auto-resolved from recorded rerere resolutions"
+    else
+        err "Conflict merging origin/fmt-llm into $TIP. Resolve in $BAR, then:"
+        err "  git -C $BAR commit --no-edit   # keeps the regen marker; rerere records the resolution"
+        exit 1
+    fi
+    ok "$TIP = stack + fmt-mig + origin/fmt-llm ($(git_bar rev-parse --short "$TIP"))"
 }
 
 # ── rebase: rebase TIP onto upstream/master, then re-derive the partition ─────
@@ -313,16 +367,18 @@ usage() { err "usage: generate.sh <rebase|gen-manifest|check|build|verify|descri
 [ $# -eq 0 ] && usage
 
 sync_base   # step 0: $BASE == freshly-fetched upstream/master before any subcommand
+strip_regen # step 0b: $TIP back to the real commits — subcommands never see the fmt commits
 
 # Run each subcommand in sequence (set -e stops on first failure), so the full
 # pipeline chains: generate.sh build verify describe push update-prs
+NEED_REGEN=""
 while [ $# -gt 0 ]; do
     cmd="$1"; shift
     case "$cmd" in
         gen-manifest)   cmd_gen_manifest ;;
         check)          cmd_check_manifest ;;
         rebase)         cmd_rebase ;;
-        build)          cmd_build ;;
+        build)          cmd_build; NEED_REGEN=1 ;;
         verify)         cmd_verify ;;
         describe)
             if [ $# -gt 0 ] && printf '%s' "$1" | grep -qE '^[0-9]+$'; then cmd_describe "$1"; shift; else cmd_describe all; fi ;;
@@ -334,3 +390,7 @@ while [ $# -gt 0 ]; do
         *) err "unknown subcommand: $cmd"; usage ;;
     esac
 done
+
+# step N: build regenerates the fmt commits after the whole chain (a mid-chain
+# regen would poison verify/push, which read $TIP); leaves $TIP checked out
+if [ -n "$NEED_REGEN" ]; then regen_tip; fi
