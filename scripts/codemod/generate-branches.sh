@@ -531,11 +531,11 @@ generate_topology() {
     echo ""
     echo "**Rollups** — composite branches stacking the leaves and (for \`fmt-llm\`) the env + LLM layers:"
     echo ""
-    echo "| Branch | Diff vs \`master\` | Diff vs parent | Units |"
-    echo "|--------|------|------|-------|"
-    echo "| $(mark "mig" "$MIG_PR") | $(diff_stat origin/master mig) | $(diff_stat fmt mig) | $(unit_status mig) |"
-    echo "| $(mark "$LLM_SOURCE_BRANCH" "$LLM_SOURCE_PR") | $(diff_stat origin/master "$LLM_SOURCE_BRANCH") | $(diff_stat mig "$LLM_SOURCE_BRANCH") | $(unit_status "$LLM_SOURCE_BRANCH") |"
-    echo "| $(mark "$LLM_BRANCH" "$LLM_PR") | $(diff_stat origin/master "$LLM_BRANCH") | $(diff_stat "$LLM_SOURCE_BRANCH" "$LLM_BRANCH") | $(unit_status "$LLM_BRANCH") |"
+    echo "| Branch | What it is | Diff vs \`master\` | Diff vs parent | Units |"
+    echo "|--------|-----------|------|------|-------|"
+    echo "| $(mark "mig" "$MIG_PR") | all deterministic transforms combined; rebuilds from \`master\` | $(diff_stat origin/master mig) | $(diff_stat fmt mig) | $(unit_status mig) |"
+    echo "| $(mark "$LLM_SOURCE_BRANCH" "$LLM_SOURCE_PR") | human-curated env layer (\`.emmyrc.json\`, \`types/*\` stubs, CI gate) + manual fixes that drive type errors to 0 in concert with the LLM pass | $(diff_stat origin/master "$LLM_SOURCE_BRANCH") | $(diff_stat mig "$LLM_SOURCE_BRANCH") | $(unit_status "$LLM_SOURCE_BRANCH") |"
+    echo "| $(mark "$LLM_BRANCH" "$LLM_PR") | \`$LLM_SOURCE_BRANCH\` + one LLM type-triage commit — the mergeable tip | $(diff_stat origin/master "$LLM_BRANCH") | $(diff_stat "$LLM_SOURCE_BRANCH" "$LLM_BRANCH") | $(unit_status "$LLM_BRANCH") |"
 }
 
 generate_leaf_pr_body() {
@@ -1068,8 +1068,8 @@ generate_issue_branch_topology() {
     echo "| Branch | Notes |"
     echo "|--------|-------|"
     echo "| $(pr_link "mig" "$MIG_PR") | all leaves combined; deterministic rebuild from \`master\` |"
-    echo "| $(pr_link "$LLM_SOURCE_BRANCH" "$LLM_SOURCE_PR") | human-curated env layer (\`.emmyrc.json\`, \`types/*\` stubs, explicit type ignores, CI gate, manual fixes) |"
-    echo "| $(pr_link "$LLM_BRANCH" "$LLM_PR") | \`$LLM_SOURCE_BRANCH\` + one LLM triage commit |"
+    echo "| $(pr_link "$LLM_SOURCE_BRANCH" "$LLM_SOURCE_PR") | human-curated env layer (\`.emmyrc.json\`, \`types/*\` stubs, explicit type ignores, CI gate) + manual fixes that drive type errors to 0 in concert with the LLM pass |"
+    echo "| $(pr_link "$LLM_BRANCH" "$LLM_PR") | \`$LLM_SOURCE_BRANCH\` + one LLM type-triage commit — the mergeable tip |"
     echo ""
     echo "Regenerated deterministically by [\`just bar::fmt-mig-generate\`]($DEVTOOLS_PR)."
     echo ""
