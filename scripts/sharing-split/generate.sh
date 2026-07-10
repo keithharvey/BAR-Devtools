@@ -251,13 +251,29 @@ ensure_migrated() {
     git_bar config rerere.autoupdate true
     if git_bar merge -m "$REGEN_MARK merge $BASE_TRACK" "$BASE" >/dev/null; then
         :
-    elif [ -z "$(git_bar diff --name-only --diff-filter=U)" ]; then
-        git_bar commit -q --no-edit
-        ok "merge conflicts auto-resolved from recorded rerere resolutions"
     else
-        err "Conflict merging $BASE_TRACK into $TIP. Resolve in $BAR, then:"
-        err "  git -C $BAR commit --no-edit   # keeps the regen marker; rerere records the resolution"
-        exit 1
+        # Non-feature conflicts must end at $BASE content anyway (gen-manifest's
+        # no-home guard enforces it) — take theirs. Feature files stay manual.
+        local mb auto
+        mb=$(git_bar merge-base "$BASE" "$(real_tip)")
+        auto=$(comm -23 <(git_bar diff --name-only --diff-filter=U | sort) \
+                        <(git_bar diff --name-only --no-renames "$mb" "$(real_tip)" | sort))
+        if [ -n "$auto" ]; then
+            step "Auto-resolving $(echo "$auto" | wc -l) non-feature conflict(s) to $BASE_TRACK"
+            local cf
+            while read -r cf; do
+                git_bar checkout --theirs -- "$cf" && git_bar add -- "$cf"
+            done <<< "$auto"
+        fi
+        if [ -z "$(git_bar diff --name-only --diff-filter=U)" ]; then
+            git_bar commit -q --no-edit
+            ok "conflicts auto-resolved (non-feature take-theirs + rerere replays)"
+        else
+            err "Feature-file conflicts merging $BASE_TRACK into $TIP:"
+            git_bar diff --name-only --diff-filter=U | sed 's/^/    /' >&2
+            err "Resolve in $BAR, then: git -C $BAR commit --no-edit   # rerere records it"
+            exit 1
+        fi
     fi
     _MIGRATED=1
     ok "$TIP = real commits + fmt-mig + $BASE_TRACK ($(git_bar rev-parse --short "$TIP"))"
