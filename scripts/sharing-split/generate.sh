@@ -55,6 +55,21 @@ files_for()     { awk -F'\t' -v l="$1" '$1==l{print $2}' "$MANIFEST"; }
 # count) to their logical home.
 declare -A OVERRIDES=(
     [types/engine.lua]=1
+    # post-stack fixup commits (I18N/EngineSynced/annotation cleanups) touched
+    # these base-line files first; pin type stubs + test infra to foundations,
+    # runtime shims to the transfer-runtime layer.
+    [types/I18N.lua]=1
+    [types/luassert/library/luassert.lua]=1
+    [common/tablefunctions.lua]=1
+    [spec/builders/sequence.lua]=1
+    [spec/builders/unit_def_builder.lua]=1
+    [spec/builders/unit_defs_builder.lua]=1
+    [spec/builders/engine_unsynced_builder.lua]=1
+    [spec/gamedata/unitdefs_spec.lua]=1
+    [spec/luaui/Widgets/api_build_orders_spec.lua]=1
+    [init.lua]=4
+    [luarules/system.lua]=4
+    [luaui/system.lua]=4
 )
 
 cmd_gen_manifest() {
@@ -73,6 +88,10 @@ cmd_gen_manifest() {
         home=$(echo $chunks | tr ' ' '\n' | sort -un | head -1)
         if [ -z "$home" ]; then
             err "no layer home for $f — differs from $BASE but untouched by $BASE..$TIP"
+            exit 1
+        fi
+        if [ -z "$(layer_branch "$home")" ]; then
+            err "$f homes to commit #$home which has no layer (fixup commit?) — pin it in OVERRIDES"
             exit 1
         fi
         printf '%s\t%s\n' "$home" "$f" >> "$MANIFEST"
