@@ -51,7 +51,10 @@ files_for()     { awk -F'\t' -v l="$1" '$1==l{print $2}' "$MANIFEST"; }
 # Files whose final content forward-depends on a later layer (a VFS.Include of a
 # module homed later than the file's earliest touch). Pin them to a later layer
 # so each PR stays self-contained. Discovered via `verify` failures; minimal.
+# Also pins files introduced by post-stack fixup commits (earliest touch > layer
+# count) to their logical home.
 declare -A OVERRIDES=(
+    [types/engine.lua]=1
 )
 
 cmd_gen_manifest() {
