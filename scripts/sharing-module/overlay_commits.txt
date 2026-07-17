@@ -1,0 +1,23 @@
+# Overlay commits of the `modules` branch, in order. Lines are exact commit
+# subjects, cherry-picked from the previous branch tip during `rebuild`.
+# @TRANSFORM marks where the generated move commit (move_map.tsv) goes.
+modules: module framework + loader hooks
+@TRANSFORM
+modules: sharing module contract (manifest + api)
+sharing: policies/ and actions/ in descriptor form
+sharing: dissolve synced delegate libraries
+modules: module-owned modoptions
+modules: surrogate modes (module-contributed mode presets)
+modules: extract economy module (first cross-module dependency)
+sharing: policy pipelines — one file per category, no filename ordering
+sharing: de-redundant contract keys
+modules: per-state contracts (explicit manifest partition, implicit resolution)
+sharing: policy categories from filenames; enum lookups, loud missing-pipeline errors
+sharing: policy code lives with the policy; validation lives with the action
+modules: registration-style actions and pipelines; filename identity
+modules: no game-side include cache — plain VFS.Include everywhere
+economy: own the team resource snapshot (team_resource_data)
+modules: drop the single-descriptor policy builder (dead API)
+sharing: inline action registrations at the declaration site
+sharing: the unit policy owns its result assembly
+modules: zero-warning audit of branch-authored files (emmylua 0.24)
