@@ -201,13 +201,18 @@ preflight() {
 
 # ── rebase: replay TIP's layer commits onto the freshly-synced $BASE ──────────
 cmd_rebase() {
-    local n; n=$(layer_ids | wc -l)
+    # Anchor on the layer-1 commit by message: $TIP may carry fixup commits on
+    # top of the N layers, so a fixed ~N undercounts and silently drops layer 1.
+    local root n
+    root=$(git_bar rev-list --fixed-strings --grep "$(layer_message 1)" -n1 "$TIP")
+    [ -n "$root" ] || { err "layer-1 commit ('$(layer_message 1)') not found on $TIP"; exit 1; }
+    n=$(git_bar rev-list --count "$root^..$TIP")
     git_bar checkout --force "$TIP" >/dev/null 2>&1
     step "Rebasing $TIP ($n commits) onto $BASE"
     # Leave the rebase IN PROGRESS on conflict (don't auto-abort): fix files,
     # `git -C <BAR> rebase --continue`, then re-run without 'rebase' — sync_base
     # re-points $BASE and gen-manifest re-derives the partition.
-    if ! git_bar rebase --onto "$BASE" "$TIP~$n" "$TIP"; then
+    if ! git_bar rebase --onto "$BASE" "$root^" "$TIP"; then
         err "Conflict rebasing $TIP onto $BASE. Resolve the conflicts in $BAR,"
         err "  then: git -C $BAR rebase --continue"
         err "  then re-run without 'rebase' (e.g. gen-manifest build verify push update-prs)."
