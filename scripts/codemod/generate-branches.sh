@@ -9,6 +9,16 @@ source "${DEVTOOLS_DIR}/scripts/common.sh"
 
 CODEMOD="${CODEMOD_BIN:-${DEVTOOLS_DIR}/bar-lua-codemod/target/release/bar-lua-codemod}"
 BAR="${BAR_DIR:-${DEVTOOLS_DIR}/Beyond-All-Reason}"
+
+# codemod excludes mirror .styluaignore (read at call time: the fix_stylua
+# prefix layer may add entries)
+run_codemod() {
+    local excludes=() dir
+    while IFS= read -r dir; do
+        [[ -n "$dir" ]] && excludes+=(--exclude "${dir%/}")
+    done < "$BAR/.styluaignore"
+    "$CODEMOD" "$@" --path "$BAR" "${excludes[@]}"
+}
 # UPSTREAM_REMOTE = the canonical upstream repo (beyond-all-reason); FORK_REMOTE =
 # the personal fork. With the standard git convention (origin=fork,
 # upstream=canonical) these map to the `upstream` and `origin` remotes
@@ -175,13 +185,13 @@ bracket_to_dot_description=""
 bracket_to_dot_summary='Rewrites identifier-keyed string access to dot notation — `x["y"]` → `x.y` and `["y"] =` → `y =` — so the analyzer can resolve field types through the access.'
 
 run_bracket_to_dot() {
-    "$CODEMOD" bracket-to-dot --path "$BAR" --exclude common/luaUtilities
+    run_codemod bracket-to-dot
 }
 
 describe_bracket_to_dot() {
     cat <<'EOF'
 # bracket-to-dot - convert x["y"] to x.y and ["y"] = to y =
-bar-lua-codemod bracket-to-dot --path "$BAR_DIR" --exclude common/luaUtilities
+bar-lua-codemod bracket-to-dot --path "$BAR_DIR" --exclude <.styluaignore dirs>
 EOF
 }
 
@@ -195,13 +205,13 @@ rename_aliases_description=""
 rename_aliases_summary='Renames deprecated Spring method aliases to their canonical names (e.g. `Spring.GetMyTeamID` → `Spring.GetLocalTeamID`) so call sites line up with the names the engine type stubs declare.'
 
 run_rename_aliases() {
-    "$CODEMOD" rename-aliases --path "$BAR" --exclude common/luaUtilities
+    run_codemod rename-aliases
 }
 
 describe_rename_aliases() {
     cat <<'EOF'
 # rename-aliases -- deprecated aliases, e.g. GetMyTeamID -> GetLocalTeamID
-bar-lua-codemod rename-aliases --path "$BAR_DIR" --exclude common/luaUtilities
+bar-lua-codemod rename-aliases --path "$BAR_DIR" --exclude <.styluaignore dirs>
 EOF
 }
 
@@ -215,13 +225,13 @@ detach_bar_modules_summary='Moves BAR-added helpers off the `Spring` table into 
 detach_bar_modules_description='The `detach-bar-modules-env` prereq exposes `BAR` to the widget/gadget sandbox (`luarules/system.lua`, `luaui/system.lua`), bootstraps `BAR = BAR or {}` in `init.lua`/`springOverrides.lua` before the detached defs, adds the consolidated `types/BAR.lua` stub, and lists `BAR` as a global in `.emmyrc.json`. Cherry-picked on top of `fmt` before the codemod runs.'
 
 run_detach_bar_modules() {
-    "$CODEMOD" detach-bar-modules --path "$BAR" --exclude common/luaUtilities
+    run_codemod detach-bar-modules
 }
 
 describe_detach_bar_modules() {
     cat <<'EOF'
 # detach-bar-modules -- moves I18N, Utilities, Debug, Lava, GetModOptionsCopy off the Spring table
-bar-lua-codemod detach-bar-modules --path "$BAR_DIR" --exclude common/luaUtilities
+bar-lua-codemod detach-bar-modules --path "$BAR_DIR" --exclude <.styluaignore dirs>
 EOF
 }
 
