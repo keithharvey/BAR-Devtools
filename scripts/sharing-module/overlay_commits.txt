@@ -21,3 +21,9 @@ modules: drop the single-descriptor policy builder (dead API)
 sharing: inline action registrations at the declaration site
 sharing: the unit policy owns its result assembly
 modules: zero-warning audit of branch-authored files (emmylua 0.24)
+sharing: plain table for the shareable-def cache
+chat: nest orgLines pack helpers inside the config callbacks
+tests: expose setmetatable/getmetatable to the test sandbox
+tests: expose getfenv to the test sandbox
+sharing: run the economy cadence from GameFrame without the excess port
+modules: framework-shared types live in root types/

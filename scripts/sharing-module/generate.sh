@@ -247,28 +247,29 @@ publish() {
     #   SHARING_TIP=upstream/sharing/05-game-modes-export just bar::sharing-module rebuild
     local leaf="upstream/sharing/05-game-modes-export"
     if git_wt rev-parse --verify -q "$leaf" >/dev/null 2>&1 && ! git_wt merge-base --is-ancestor "$leaf" HEAD; then
-        warn "$leaf is not an ancestor of HEAD — the PR will show the whole #5704 stack."
+        warn "$leaf is not an ancestor of HEAD — the PR will show the whole sharing stack."
         warn "Rebuild first: SHARING_TIP=$leaf just bar::sharing-module rebuild"
     fi
 
-    step "Pushing ${BRANCH} to origin (${fork_owner})"
-    git_wt push origin "HEAD:refs/heads/${BRANCH}" --force-with-lease
+    # Same-repo convention: the branch and PR head live on the canonical repo
+    # (native stacks reject fork-headed PRs); the fork gets a mirror push.
+    step "Pushing ${BRANCH} to upstream (${upstream_repo})"
+    git_wt push upstream "HEAD:refs/heads/${BRANCH}" --force-with-lease
+    git_wt push origin "HEAD:refs/heads/${BRANCH}" --force-with-lease || warn "fork mirror push failed — continuing"
     ok "Pushed"
 
     local existing
-    # NB: gh pr list --head "owner:branch" does not match cross-fork PRs;
-    # filter on headRepositoryOwner explicitly.
     existing="$(gh pr list --repo "$upstream_repo" --state open \
-        --json number,headRefName,headRepositoryOwner \
-        --jq ".[] | select(.headRefName == \"${BRANCH}\" and .headRepositoryOwner.login == \"${fork_owner}\") | .number" 2>/dev/null | head -1 || true)"
+        --json number,headRefName,isCrossRepository \
+        --jq ".[] | select(.headRefName == \"${BRANCH}\" and (.isCrossRepository | not)) | .number" 2>/dev/null | head -1 || true)"
     if [[ -n "$existing" && "$existing" != "null" ]]; then
         step "Updating body of existing PR #${existing}"
         gh pr edit "$existing" --repo "$upstream_repo" --body-file "$body"
         ok "PR #${existing} updated: https://github.com/${upstream_repo}/pull/${existing}"
     else
-        step "Opening draft PR (${fork_owner}:${BRANCH} -> ${pr_base})"
+        step "Opening draft PR (${BRANCH} -> ${pr_base})"
         gh pr create --repo "$upstream_repo" --draft \
-            --head "${fork_owner}:${BRANCH}" --base "$pr_base" \
+            --head "${BRANCH}" --base "$pr_base" \
             --title "The Modules Format" --body-file "$body"
         ok "Draft PR opened"
     fi
