@@ -20,10 +20,12 @@ repos.local.conf
 
 # Build artifacts
 bar-lua-codemod/target/
+bar-mission-kit/target/
 
 # Runtime / editor state
 tasks/
 .devtools/
+.claude/worktrees/
 .backups/
 *.log
 .claude/settings.local.json
