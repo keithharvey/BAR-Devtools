@@ -1,6 +1,8 @@
-use full_moon::ast::*;
-use full_moon::tokenizer::*;
-use full_moon::visitors::VisitorMut;
+use crate::cst::is_func_stat_name;
+use crate::edit::{self, Edit};
+use emmylua_parser::{
+    LuaAstNode, LuaAstToken, LuaExpr, LuaIndexExpr, LuaIndexKey, LuaSyntaxTree,
+};
 use std::collections::HashSet;
 
 pub struct DetachBarModules {
@@ -16,117 +18,70 @@ impl DetachBarModules {
         }
     }
 
-    /// Match `Spring.Module` (prefix = Spring) or `_G.Spring.Module`
-    /// (prefix = _G, first suffix = .Spring). In both cases, rename the
-    /// Spring segment to `BAR`, keeping the module name and everything after
-    /// it (`Spring.I18N.t()` → `BAR.I18N.t()`).
-    fn try_rewrite(
-        &mut self,
-        prefix: &Prefix,
-        suffixes: &[Suffix],
-    ) -> Option<(Prefix, Vec<Suffix>)> {
-        let Prefix::Name(token_ref) = prefix else {
-            return None;
-        };
-        let prefix_name = token_ref.token().to_string();
-
-        if prefix_name == "Spring" {
-            let Some(Suffix::Index(Index::Dot { name, .. })) = suffixes.first() else {
-                return None;
+    /// Match `Spring.Module` or `_G.Spring.Module` and rename the Spring
+    /// segment to `BAR`, keeping the module name and everything after it
+    /// (`Spring.I18N.t()` -> `BAR.I18N.t()`).
+    pub fn rewrite(&mut self, source: &str, tree: &LuaSyntaxTree) -> String {
+        let mut edits: Vec<Edit> = Vec::new();
+        for node in tree.get_chunk_node().syntax().descendants() {
+            let Some(index) = LuaIndexExpr::cast(node) else {
+                continue;
             };
-            if !self.modules.contains(&name.token().to_string()) {
-                return None;
+            if is_func_stat_name(index.syntax()) {
+                continue;
             }
-            self.conversions += 1;
-            let new_prefix = Prefix::Name(TokenReference::new(
-                token_ref.leading_trivia().cloned().collect(),
-                Token::new(TokenType::Identifier {
-                    identifier: "BAR".into(),
-                }),
-                token_ref.trailing_trivia().cloned().collect(),
-            ));
-            return Some((new_prefix, suffixes.to_vec()));
-        }
-
-        if prefix_name == "_G" && suffixes.len() >= 2 {
-            let Some(Suffix::Index(Index::Dot { dot, name: spring_name, .. })) = suffixes.first()
-            else {
-                return None;
+            let Some(LuaIndexKey::Name(module)) = index.get_index_key() else {
+                continue;
             };
-            if spring_name.token().to_string() != "Spring" {
-                return None;
+            if !self.modules.contains(module.get_name_text()) {
+                continue;
             }
-            let Some(Suffix::Index(Index::Dot { name: module_name_tok, .. })) = suffixes.get(1)
-            else {
-                return None;
-            };
-            if !self.modules.contains(&module_name_tok.token().to_string()) {
-                return None;
-            }
-            self.conversions += 1;
-            let new_first = Suffix::Index(Index::Dot {
-                dot: dot.clone(),
-                name: TokenReference::new(
-                    spring_name.leading_trivia().cloned().collect(),
-                    Token::new(TokenType::Identifier {
-                        identifier: "BAR".into(),
-                    }),
-                    spring_name.trailing_trivia().cloned().collect(),
-                ),
-            });
-            let mut remaining = vec![new_first];
-            remaining.extend_from_slice(&suffixes[1..]);
-            return Some((prefix.clone(), remaining));
-        }
-
-        None
-    }
-}
-
-impl VisitorMut for DetachBarModules {
-    fn visit_function_call(&mut self, call: FunctionCall) -> FunctionCall {
-        let suffixes: Vec<Suffix> = call.suffixes().cloned().collect();
-        if let Some((new_prefix, remaining)) = self.try_rewrite(call.prefix(), &suffixes) {
-            call.with_prefix(new_prefix)
-                .with_suffixes(remaining)
-        } else {
-            call
-        }
-    }
-
-    fn visit_var(&mut self, var: Var) -> Var {
-        match var {
-            Var::Expression(var_expr) => {
-                let suffixes: Vec<Suffix> = var_expr.suffixes().cloned().collect();
-                if let Some((new_prefix, remaining)) =
-                    self.try_rewrite(var_expr.prefix(), &suffixes)
+            let spring_range = match index.get_prefix_expr() {
+                Some(LuaExpr::NameExpr(prefix))
+                    if prefix.get_name_text().as_deref() == Some("Spring") =>
                 {
-                    Var::Expression(Box::new(
-                        var_expr
-                            .with_prefix(new_prefix)
-                            .with_suffixes(remaining),
-                    ))
-                } else {
-                    Var::Expression(var_expr)
+                    prefix.syntax().text_range()
                 }
-            }
-            other => other,
+                Some(LuaExpr::IndexExpr(inner)) => {
+                    let Some(LuaExpr::NameExpr(base)) = inner.get_prefix_expr() else {
+                        continue;
+                    };
+                    if base.get_name_text().as_deref() != Some("_G") {
+                        continue;
+                    }
+                    let Some(LuaIndexKey::Name(spring)) = inner.get_index_key() else {
+                        continue;
+                    };
+                    if spring.get_name_text() != "Spring" {
+                        continue;
+                    }
+                    spring.get_range()
+                }
+                _ => continue,
+            };
+            self.conversions += 1;
+            edits.push(Edit {
+                start: usize::from(spring_range.start()),
+                end: usize::from(spring_range.end()),
+                text: "BAR".to_string(),
+            });
         }
+        edit::apply(source, edits)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use full_moon::{parse, visitors::VisitorMut};
+    use crate::cst::parse;
 
     const MODULES: &[&str] = &["I18N", "Utilities", "Debug", "Lava"];
 
     fn transform(input: &str) -> (String, usize) {
-        let ast = parse(input).expect("parse failed");
+        let tree = parse(input).expect("parse failed");
         let mut visitor = DetachBarModules::new(MODULES);
-        let ast = visitor.visit_ast(ast);
-        (ast.to_string(), visitor.conversions)
+        let out = visitor.rewrite(input, &tree);
+        (out, visitor.conversions)
     }
 
     #[test]
@@ -212,5 +167,12 @@ mod tests {
         let (out, n) = transform("_G.Spring.Utilities.Gametype.IsFFA()");
         assert_eq!(out, "_G.BAR.Utilities.Gametype.IsFFA()");
         assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn function_definition_name_unchanged() {
+        let (out, n) = transform("function Spring.Utilities.Round(x) return x end");
+        assert_eq!(out, "function Spring.Utilities.Round(x) return x end");
+        assert_eq!(n, 0);
     }
 }

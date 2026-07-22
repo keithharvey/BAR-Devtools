@@ -1,6 +1,8 @@
-use full_moon::ast::*;
-use full_moon::tokenizer::*;
-use full_moon::visitors::VisitorMut;
+use crate::cst::is_func_stat_name;
+use crate::edit::{self, Edit};
+use emmylua_parser::{
+    LuaAstNode, LuaAstToken, LuaExpr, LuaIndexExpr, LuaIndexKey, LuaSyntaxTree,
+};
 use std::collections::HashMap;
 
 pub struct RenameAliases {
@@ -19,66 +21,45 @@ impl RenameAliases {
         }
     }
 
-    /// If prefix is "Spring" and first suffix is `.OldName` where OldName is
-    /// in our alias map, rewrite the suffix to use the canonical name.
-    fn try_rewrite(&mut self, prefix: &Prefix, suffixes: &[Suffix]) -> Option<Vec<Suffix>> {
-        let Prefix::Name(token_ref) = prefix else {
-            return None;
-        };
-        if token_ref.token().to_string() != "Spring" {
-            return None;
-        }
-        let Some(Suffix::Index(Index::Dot { dot, name })) = suffixes.first() else {
-            return None;
-        };
-        let method_name = name.token().to_string();
-        let canonical = self.aliases.get(&method_name)?;
-        self.conversions += 1;
-        let new_name = TokenReference::new(
-            name.leading_trivia().cloned().collect(),
-            Token::new(TokenType::Identifier {
-                identifier: canonical.as_str().into(),
-            }),
-            name.trailing_trivia().cloned().collect(),
-        );
-        let mut new_suffixes = vec![Suffix::Index(Index::Dot {
-            dot: dot.clone(),
-            name: new_name,
-        })];
-        new_suffixes.extend(suffixes[1..].iter().cloned());
-        Some(new_suffixes)
-    }
-}
-
-impl VisitorMut for RenameAliases {
-    fn visit_function_call(&mut self, call: FunctionCall) -> FunctionCall {
-        let suffixes: Vec<Suffix> = call.suffixes().cloned().collect();
-        if let Some(new_suffixes) = self.try_rewrite(call.prefix(), &suffixes) {
-            call.with_suffixes(new_suffixes)
-        } else {
-            call
-        }
-    }
-
-    fn visit_var(&mut self, var: Var) -> Var {
-        match var {
-            Var::Expression(var_expr) => {
-                let suffixes: Vec<Suffix> = var_expr.suffixes().cloned().collect();
-                if let Some(new_suffixes) = self.try_rewrite(var_expr.prefix(), &suffixes) {
-                    Var::Expression(Box::new(var_expr.with_suffixes(new_suffixes)))
-                } else {
-                    Var::Expression(var_expr)
-                }
+    /// Rewrite `Spring.OldName` to the canonical name wherever the prefix is
+    /// the bare `Spring` global.
+    pub fn rewrite(&mut self, source: &str, tree: &LuaSyntaxTree) -> String {
+        let mut edits: Vec<Edit> = Vec::new();
+        for node in tree.get_chunk_node().syntax().descendants() {
+            let Some(index) = LuaIndexExpr::cast(node) else {
+                continue;
+            };
+            if is_func_stat_name(index.syntax()) {
+                continue;
             }
-            other => other,
+            let Some(LuaExpr::NameExpr(prefix)) = index.get_prefix_expr() else {
+                continue;
+            };
+            if prefix.get_name_text().as_deref() != Some("Spring") {
+                continue;
+            }
+            let Some(LuaIndexKey::Name(name)) = index.get_index_key() else {
+                continue;
+            };
+            let Some(canonical) = self.aliases.get(name.get_name_text()) else {
+                continue;
+            };
+            self.conversions += 1;
+            let range = name.get_range();
+            edits.push(Edit {
+                start: usize::from(range.start()),
+                end: usize::from(range.end()),
+                text: canonical.clone(),
+            });
         }
+        edit::apply(source, edits)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use full_moon::{parse, visitors::VisitorMut};
+    use crate::cst::parse;
 
     const ALIASES: &[(&str, &str)] = &[
         ("GetMyTeamID", "GetLocalTeamID"),
@@ -87,10 +68,10 @@ mod tests {
     ];
 
     fn transform(input: &str) -> (String, usize) {
-        let ast = parse(input).expect("parse failed");
+        let tree = parse(input).expect("parse failed");
         let mut visitor = RenameAliases::new(ALIASES);
-        let ast = visitor.visit_ast(ast);
-        (ast.to_string(), visitor.conversions)
+        let out = visitor.rewrite(input, &tree);
+        (out, visitor.conversions)
     }
 
     #[test]
@@ -135,5 +116,12 @@ mod tests {
         assert!(out.contains("Spring.GetLocalTeamID()"));
         assert!(out.contains("Spring.GetLocalAllyTeamID()"));
         assert_eq!(n, 2);
+    }
+
+    #[test]
+    fn bracket_access_unchanged() {
+        let (out, n) = transform(r#"local f = Spring["GetMyTeamID"]"#);
+        assert_eq!(out, r#"local f = Spring["GetMyTeamID"]"#);
+        assert_eq!(n, 0);
     }
 }

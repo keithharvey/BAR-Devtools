@@ -1,13 +1,12 @@
 use clap::{Parser, Subcommand};
-use full_moon::visitors::VisitorMut;
 use std::path::PathBuf;
 use std::{fs, process};
 
 mod bracket_to_dot;
+mod cst;
 mod detach_bar_modules;
-mod i18n_kikito;
+mod edit;
 mod rename_aliases;
-mod spring_split;
 
 #[derive(Parser)]
 #[command(name = "bar-lua-codemod")]
@@ -54,40 +53,6 @@ enum Commands {
         /// Root directory to process
         #[arg(long, default_value = ".")]
         path: PathBuf,
-
-        /// Directories to exclude (relative to path, may be repeated)
-        #[arg(long)]
-        exclude: Vec<String>,
-
-        /// Report changes without writing files
-        #[arg(long)]
-        dry_run: bool,
-    },
-
-    /// Replace vendored gajop/i18n with kikito/i18n.lua and transform unit-name call sites
-    I18nKikito {
-        /// Root directory to process
-        #[arg(long, default_value = ".")]
-        path: PathBuf,
-
-        /// Directories to exclude (relative to path, may be repeated)
-        #[arg(long)]
-        exclude: Vec<String>,
-
-        /// Report changes without writing files
-        #[arg(long)]
-        dry_run: bool,
-    },
-
-    /// Replace Spring.X with Engine.Synced.X / Engine.Unsynced.X / Engine.Shared.X based on API stubs
-    SpringSplit {
-        /// Root directory to process
-        #[arg(long, default_value = ".")]
-        path: PathBuf,
-
-        /// Path to recoil-lua-library/library (contains generated stubs)
-        #[arg(long)]
-        library: PathBuf,
 
         /// Directories to exclude (relative to path, may be repeated)
         #[arg(long)]
@@ -157,21 +122,21 @@ fn run_bracket_to_dot(root: &PathBuf, excludes: &[String], dry_run: bool) {
             }
         };
 
-        let ast = match full_moon::parse(&code) {
-            Ok(a) => a,
+        let tree = match cst::parse(&code) {
+            Ok(t) => t,
             Err(e) => {
-                eprintln!("  parse error in {}: {:?}", file_path.display(), e);
+                eprintln!("  parse error in {}: {}", file_path.display(), e);
                 errors += 1;
                 continue;
             }
         };
 
-        let mut visitor = bracket_to_dot::BracketToDot::new(&code);
-        let new_ast = visitor.visit_ast(ast);
+        let mut visitor = bracket_to_dot::BracketToDot::new();
+        let new_code = visitor.rewrite(&code, &tree);
 
         if visitor.index_conversions > 0 || visitor.field_conversions > 0 {
             if !dry_run {
-                if let Err(e) = fs::write(file_path, new_ast.to_string()) {
+                if let Err(e) = fs::write(file_path, new_code) {
                     eprintln!("  error writing {}: {}", file_path.display(), e);
                     errors += 1;
                     continue;
@@ -264,21 +229,21 @@ fn run_rename_aliases(root: &PathBuf, excludes: &[String], dry_run: bool) {
             }
         };
 
-        let ast = match full_moon::parse(&code) {
-            Ok(a) => a,
+        let tree = match cst::parse(&code) {
+            Ok(t) => t,
             Err(e) => {
-                eprintln!("  parse error in {}: {:?}", file_path.display(), e);
+                eprintln!("  parse error in {}: {}", file_path.display(), e);
                 errors += 1;
                 continue;
             }
         };
 
         let mut visitor = rename_aliases::RenameAliases::new(BAR_ALIASES);
-        let new_ast = visitor.visit_ast(ast);
+        let new_code = visitor.rewrite(&code, &tree);
 
         if visitor.conversions > 0 {
             if !dry_run {
-                if let Err(e) = fs::write(file_path, new_ast.to_string()) {
+                if let Err(e) = fs::write(file_path, new_code) {
                     eprintln!("  error writing {}: {}", file_path.display(), e);
                     errors += 1;
                     continue;
@@ -341,21 +306,21 @@ fn run_detach_bar_modules(root: &PathBuf, excludes: &[String], dry_run: bool) {
             }
         };
 
-        let ast = match full_moon::parse(&code) {
-            Ok(a) => a,
+        let tree = match cst::parse(&code) {
+            Ok(t) => t,
             Err(e) => {
-                eprintln!("  parse error in {}: {:?}", file_path.display(), e);
+                eprintln!("  parse error in {}: {}", file_path.display(), e);
                 errors += 1;
                 continue;
             }
         };
 
         let mut visitor = detach_bar_modules::DetachBarModules::new(BAR_MODULES);
-        let new_ast = visitor.visit_ast(ast);
+        let new_code = visitor.rewrite(&code, &tree);
 
         if visitor.conversions > 0 {
             if !dry_run {
-                if let Err(e) = fs::write(file_path, new_ast.to_string()) {
+                if let Err(e) = fs::write(file_path, new_code) {
                     eprintln!("  error writing {}: {}", file_path.display(), e);
                     errors += 1;
                     continue;
@@ -393,215 +358,6 @@ fn run_detach_bar_modules(root: &PathBuf, excludes: &[String], dry_run: bool) {
     }
 }
 
-fn run_i18n_kikito(root: &PathBuf, excludes: &[String], dry_run: bool) {
-    // Part A: Rewrite the wrapper
-    let wrapper_path = root.join("modules/i18n/i18n.lua");
-    let wrapper_content = match fs::read_to_string(&wrapper_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("  error reading wrapper {}: {}", wrapper_path.display(), e);
-            process::exit(1);
-        }
-    };
-
-    match i18n_kikito::rewrite_wrapper(&wrapper_content) {
-        Ok(new_content) => {
-            if !dry_run {
-                if let Err(e) = fs::write(&wrapper_path, &new_content) {
-                    eprintln!("  error writing wrapper: {}", e);
-                    process::exit(1);
-                }
-            }
-            println!("  Wrapper rewritten: {}", wrapper_path.display());
-        }
-        Err(e) => {
-            eprintln!("  error rewriting wrapper: {}", e);
-            process::exit(1);
-        }
-    }
-
-    // Part B: Transform call sites
-    let files = collect_lua_files(root, excludes);
-    let total_files = files.len();
-
-    if total_files == 0 {
-        eprintln!("No .lua files found under {}", root.display());
-        process::exit(1);
-    }
-
-    let mut files_changed: usize = 0;
-    let mut total_conversions: usize = 0;
-    let mut errors: usize = 0;
-    let mut per_file: Vec<(PathBuf, usize)> = Vec::new();
-
-    for file_path in &files {
-        let code = match fs::read_to_string(file_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("  error reading {}: {}", file_path.display(), e);
-                errors += 1;
-                continue;
-            }
-        };
-
-        let ast = match full_moon::parse(&code) {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!("  parse error in {}: {:?}", file_path.display(), e);
-                errors += 1;
-                continue;
-            }
-        };
-
-        let mut visitor = i18n_kikito::I18nCallSites::new();
-        let new_ast = visitor.visit_ast(ast);
-
-        if visitor.conversions > 0 {
-            if !dry_run {
-                if let Err(e) = fs::write(file_path, new_ast.to_string()) {
-                    eprintln!("  error writing {}: {}", file_path.display(), e);
-                    errors += 1;
-                    continue;
-                }
-            }
-            files_changed += 1;
-            total_conversions += visitor.conversions;
-            per_file.push((file_path.clone(), visitor.conversions));
-        }
-    }
-
-    if dry_run {
-        println!("bar-lua-codemod i18n-kikito (DRY RUN):");
-    } else {
-        println!("bar-lua-codemod i18n-kikito results:");
-    }
-    println!("  Files scanned:        {:>7}", format_num(total_files));
-    println!("  Files changed:        {:>7}", format_num(files_changed));
-    println!("  Call-site conversions: {:>7}", format_num(total_conversions));
-    println!("  Errors:               {:>7}", format_num(errors));
-
-    if !per_file.is_empty() {
-        per_file.sort_by(|a, b| b.1.cmp(&a.1));
-        println!();
-        println!("Top files by conversion count:");
-        for (path, count) in per_file.iter().take(20) {
-            let rel = path.strip_prefix(root).unwrap_or(path);
-            println!("  {:<60} {:>5}", rel.display(), count);
-        }
-    }
-
-    if errors > 0 {
-        process::exit(1);
-    }
-}
-
-fn run_spring_split(root: &PathBuf, library: &PathBuf, excludes: &[String], dry_run: bool) {
-    let mapping = spring_split::build_mapping(library);
-    let mapping_size = mapping.len();
-    eprintln!(
-        "  Loaded {} method mappings from {}",
-        mapping_size,
-        library.display()
-    );
-
-    if mapping_size == 0 {
-        eprintln!("No method mappings found -- check --library path");
-        process::exit(1);
-    }
-
-    let files = collect_lua_files(root, excludes);
-    let total_files = files.len();
-
-    if total_files == 0 {
-        eprintln!("No .lua files found under {}", root.display());
-        process::exit(1);
-    }
-
-    let mut files_changed: usize = 0;
-    let mut total_conversions: usize = 0;
-    let mut total_unmapped: usize = 0;
-    let mut errors: usize = 0;
-    let mut per_file: Vec<(PathBuf, usize)> = Vec::new();
-    let mut all_unmapped: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-
-    for file_path in &files {
-        let code = match fs::read_to_string(file_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("  error reading {}: {}", file_path.display(), e);
-                errors += 1;
-                continue;
-            }
-        };
-
-        let ast = match full_moon::parse(&code) {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!("  parse error in {}: {:?}", file_path.display(), e);
-                errors += 1;
-                continue;
-            }
-        };
-
-        let mut visitor = spring_split::SpringSplit::new(mapping.clone());
-        let new_ast = visitor.visit_ast(ast);
-
-        total_unmapped += visitor.unmapped;
-        for (name, count) in &visitor.unmapped_names {
-            *all_unmapped.entry(name.clone()).or_insert(0) += count;
-        }
-
-        if visitor.conversions > 0 {
-            if !dry_run {
-                if let Err(e) = fs::write(file_path, new_ast.to_string()) {
-                    eprintln!("  error writing {}: {}", file_path.display(), e);
-                    errors += 1;
-                    continue;
-                }
-            }
-            files_changed += 1;
-            total_conversions += visitor.conversions;
-            per_file.push((file_path.clone(), visitor.conversions));
-        }
-    }
-
-    if dry_run {
-        println!("bar-lua-codemod spring-split (DRY RUN):");
-    } else {
-        println!("bar-lua-codemod spring-split results:");
-    }
-    println!("  Method mappings loaded:             {:>8}", format_num(mapping_size));
-    println!("  Files scanned:                      {:>8}", format_num(total_files));
-    println!("  Files changed:                      {:>8}", format_num(files_changed));
-    println!("  Spring.X -> Specific.X conversions: {:>8}", format_num(total_conversions));
-    println!("  Unmapped Spring.X references:       {:>8}", format_num(total_unmapped));
-    println!("  Errors (parse failures):            {:>8}", format_num(errors));
-
-    if !per_file.is_empty() {
-        per_file.sort_by(|a, b| b.1.cmp(&a.1));
-        println!();
-        println!("Top files by conversion count:");
-        for (path, count) in per_file.iter().take(20) {
-            let rel = path.strip_prefix(root).unwrap_or(path);
-            println!("  {:<60} {:>5}", rel.display(), count);
-        }
-    }
-
-    if !all_unmapped.is_empty() {
-        let mut unmapped_sorted: Vec<_> = all_unmapped.into_iter().collect();
-        unmapped_sorted.sort_by(|a, b| b.1.cmp(&a.1));
-        println!();
-        println!("Unmapped Spring.X methods ({} unique):", unmapped_sorted.len());
-        for (name, count) in &unmapped_sorted {
-            println!("  {:<50} {:>5}", name, count);
-        }
-    }
-
-    if errors > 0 {
-        process::exit(1);
-    }
-}
-
 fn main() {
     let cli = Cli::parse();
     match cli.command {
@@ -620,16 +376,5 @@ fn main() {
             exclude,
             dry_run,
         } => run_detach_bar_modules(&path, &exclude, dry_run),
-        Commands::I18nKikito {
-            path,
-            exclude,
-            dry_run,
-        } => run_i18n_kikito(&path, &exclude, dry_run),
-        Commands::SpringSplit {
-            path,
-            library,
-            exclude,
-            dry_run,
-        } => run_spring_split(&path, &library, &exclude, dry_run),
     }
 }
