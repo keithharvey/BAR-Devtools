@@ -18,7 +18,7 @@ UPSTREAM_REMOTE="${UPSTREAM_REMOTE:-upstream}"
 # Migrated line the stack sits on: origin/fmt-llm until #8235 lands, then
 # upstream/master + master (rebase after flipping). BASE is the ref we read;
 # BASE_BRANCH is its upstream publish name (layer-1 + root PR base).
-BASE="${SHARING_BASE:-origin/fmt-llm}"
+BASE="${SHARING_BASE:-upstream/fmt-llm}"
 BASE_BRANCH="${SHARING_BASE_BRANCH:-fmt-llm}"
 # Model for `describe` (generate + validate). Override if the id 404s.
 DESC_MODEL="${SHARING_DESC_MODEL:-claude-opus-4-6}"
@@ -27,9 +27,9 @@ MANIFEST="${SELF_DIR}/manifest.tsv"   # <layer>\t<path>
 LAYERS_CONF="${SELF_DIR}/layers.tsv"  # <layer>\t<staging-branch>\t<message>
 PR_TARGETS="${SELF_DIR}/pr_targets.tsv"  # <layer>\t<real-branch>\t<base>\t<remote>\t<pr#>
 FORK_OWNER="${FORK_OWNER:-$(git -C "$BAR" remote get-url origin 2>/dev/null | sed -n 's|.*[:/]\([^/]*\)/.*|\1|p')}"
-STACK_ROOT_PR="${STACK_ROOT_PR:-5704}"          # root PR: head $TIP, the merge vehicle
-STACK_ROOT_BASE="${STACK_ROOT_BASE:-}"          # set to master for merge week; defaults to $BASE
-STACK_FMT_PR="${STACK_FMT_PR:-8235}"  # type-migration capstone; merges before this stack
+STACK_NATIVE="${STACK_NATIVE:-8411}"  # native stacked-PR stack (the merge path)
+STACK_ISSUE="${STACK_ISSUE:-8412}"    # feature tracking issue
+STACK_FMT_PR="${STACK_FMT_PR:-8398}"  # type-migration capstone; merges before this stack
 
 git_bar() { git -C "$BAR" -c submodule.recurse=false "$@"; }
 step() { printf '\033[1;34m▸ %s\033[0m\n' "$*"; }
@@ -297,11 +297,7 @@ pr_num()    { awk -F'\t' -v l="$1" '$1==l{print $5}' "$PR_TARGETS"; }
 # ── stacked_split: the bottom-up nav block, current layer bolded ──────────────
 cmd_topology() {
     local cur="${1:-}" l n msg line
-    if [ "$cur" = "root" ]; then
-        echo "### 📚 Reviewed via the file-partitioned split — bottom-up"
-    else
-        echo "### 📚 Stacked split of #${STACK_ROOT_PR} — review bottom-up"
-    fi
+    echo "### 📚 The sharing stack — review bottom-up"
     echo ""
     local total; total=$(layer_ids | wc -l)
     for l in $(layer_ids); do
@@ -310,13 +306,8 @@ cmd_topology() {
         if [ "$l" = "$cur" ]; then echo "- **${line}** ← you are here"; else echo "- ${line}"; fi
     done
     echo ""
-    if [ "$cur" = "root" ]; then
-        echo "> [!IMPORTANT]"
-        echo "> **This PR is the merge vehicle for the whole feature — review happens in the split PRs above.** Its tree is byte-identical to the assembled split tip. Merge order: the type-migration stack (#${STACK_FMT_PR}) lands first; then this PR's base flips to \`master\` (the diff doesn't change — the stack is already built on the migrated base) and it merges through the GitHub UI. The split PRs are closed afterwards; their content is contained here."
-    else
-        echo "> [!WARNING]"
-        echo "> Review and approve here, but **don't merge this PR** — the whole feature lands in one GitHub-UI merge of the root PR #${STACK_ROOT_PR} (byte-identical to the assembled tip) once the type-migration stack (#${STACK_FMT_PR}) is in. Merge instructions live on #${STACK_ROOT_PR}."
-    fi
+    echo "> [!NOTE]"
+    echo "> Part of native stack #${STACK_NATIVE} (feature tracking: #${STACK_ISSUE}). Merges bottom-up through the GitHub stacked-PR UI once the type-migration stack (#${STACK_FMT_PR}) is in."
     echo ""
     echo "Each PR is file-partitioned: every file appears in exactly one PR in its final \`${TIP}\` form, so each PR's diff is byte-identical to that branch. Regenerated deterministically by \`just bar::sharing-split\`."
 }
@@ -383,6 +374,18 @@ cmd_push() {
 }
 
 # ── update-prs: push composed bodies + set bases via gh ──────────────────────
+# Native stacks reject --base edits (the stack owns the base) — send --base
+# only when it needs to move.
+edit_pr() {
+    local n="$1" body="$2" base="$3" current
+    current=$(gh pr view "$n" --repo beyond-all-reason/Beyond-All-Reason --json baseRefName -q .baseRefName)
+    if [ "$current" = "$base" ]; then
+        gh pr edit "$n" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body"
+    else
+        gh pr edit "$n" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$base"
+    fi
+}
+
 cmd_update_prs() {
     command -v gh >/dev/null 2>&1 || { err "gh not on PATH"; exit 1; }
     local l n base body failed=""
@@ -392,24 +395,12 @@ cmd_update_prs() {
         cmd_pr_body "$l" > "$body"
         step "gh pr edit #$n (base $base)"
         # Resilient: a single gh failure (transient/cross-repo) must not abort the rest.
-        if gh pr edit "$n" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$base"; then
+        if edit_pr "$n" "$body" "$base"; then
             ok "  #$n updated"
         else
             warn "  #$n FAILED — continuing"; failed="$failed $n"
         fi
     done
-    # Root PR (merge vehicle): base $BASE_BRANCH while in review; STACK_ROOT_BASE=master for merge week.
-    local rbase="${STACK_ROOT_BASE:-$BASE_BRANCH}"
-    body="$BAR/.git/sharing-pr-root-body.md"
-    { cmd_topology root
-      if [ -s "${SELF_DIR}/descriptions/root.md" ]; then echo ""; echo "-----"; echo ""; cat "${SELF_DIR}/descriptions/root.md"; fi
-    } > "$body"
-    step "gh pr edit #$STACK_ROOT_PR (root, base $rbase)"
-    if gh pr edit "$STACK_ROOT_PR" --repo beyond-all-reason/Beyond-All-Reason --body-file "$body" --base "$rbase"; then
-        ok "  #$STACK_ROOT_PR updated"
-    else
-        warn "  #$STACK_ROOT_PR FAILED (closed? reopen it) — continuing"; failed="$failed $STACK_ROOT_PR"
-    fi
     [ -n "$failed" ] && { err "PRs not updated:$failed (re-run update-prs)"; exit 1; } || ok "all PRs updated"
 }
 
