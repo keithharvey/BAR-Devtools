@@ -287,3 +287,7 @@ setup-hooks:
 # Rebuild/operate the file-partitioned sharing PR stack (see scripts/sharing-split/)
 sharing-split *ARGS:
     @bash "{{DEVTOOLS_DIR}}/scripts/sharing-split/generate.sh" {{ARGS}}
+
+# Rebuild/verify/publish the encapsulated modules branch, stack PR #3 (see scripts/sharing-module/)
+sharing-module *ARGS:
+    @bash "{{DEVTOOLS_DIR}}/scripts/sharing-module/generate.sh" {{ARGS}}
