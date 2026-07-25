@@ -221,7 +221,7 @@ detach_bar_modules_commit="gen(bar_codemod): detach-bar-modules"
 detach_bar_modules_pr="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8403"
 detach_bar_modules_prereq="detach-bar-modules-env"
 detach_bar_modules_summary='Moves BAR-added helpers off the `Spring` table into a `BAR` namespace — `Spring.I18N` → `BAR.I18N`, plus `BAR.Utilities`, `BAR.Debug`, `BAR.Lava`, and `BAR.GetModOptionsCopy` — since they aren'\''t engine API and otherwise break type-checking against the `Spring` stubs.'
-detach_bar_modules_description='The `detach-bar-modules-env` prereq exposes `BAR` to the widget/gadget sandbox (`luarules/system.lua`, `luaui/system.lua`), bootstraps `BAR = BAR or {}` in `init.lua`/`springOverrides.lua` before the detached defs, adds the consolidated `types/BAR.lua` stub, lists `BAR` as a global in `.emmyrc.json`, and bootstraps the namespace in the spec harness (the builders' init previously rode engine-builders-env). Cherry-picked on top of `fmt` before the codemod runs.'
+detach_bar_modules_description='The `detach-bar-modules-env` prereq exposes `BAR` to the widget/gadget sandbox (`luarules/system.lua`, `luaui/system.lua`), bootstraps `BAR = BAR or {}` in `init.lua`/`springOverrides.lua` before the detached defs, adds the consolidated `types/BAR.lua` stub, lists `BAR` as a global in `.emmyrc.json`, and bootstraps the namespace in the spec harness (that init previously rode engine-builders-env). Cherry-picked on top of `fmt` before the codemod runs.'
 
 run_detach_bar_modules() {
     "$CODEMOD" detach-bar-modules --path "$BAR" "${CODEMOD_EXCLUDES[@]}"
