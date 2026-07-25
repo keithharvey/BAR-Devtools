@@ -19,6 +19,9 @@ FORK_REMOTE="${FORK_REMOTE:-origin}"
 
 UPSTREAM_REPO="beyond-all-reason/Beyond-All-Reason"
 FORK_OWNER="${FORK_OWNER:-$(git -C "$BAR" remote get-url "$FORK_REMOTE" 2>/dev/null | sed -n 's|.*[:/]\([^/]*\)/.*|\1|p')}"
+# owner/repo slug of the canonical repo — commit links (museum table) point
+# here, since every pipeline branch hosts on the canonical repo.
+UPSTREAM_SLUG="${UPSTREAM_SLUG:-$(git -C "$BAR" remote get-url "$UPSTREAM_REMOTE" 2>/dev/null | sed -e 's|\.git$||' -e 's|.*[:/]\([^/]*/[^/]*\)$|\1|')}"
 
 # Every pipeline branch hosts directly on the canonical repo
 # ($UPSTREAM_REMOTE, beyond-all-reason), with same-repo PRs — GitHub's native
@@ -218,7 +221,7 @@ detach_bar_modules_commit="gen(bar_codemod): detach-bar-modules"
 detach_bar_modules_pr="https://github.com/beyond-all-reason/Beyond-All-Reason/pull/8403"
 detach_bar_modules_prereq="detach-bar-modules-env"
 detach_bar_modules_summary='Moves BAR-added helpers off the `Spring` table into a `BAR` namespace — `Spring.I18N` → `BAR.I18N`, plus `BAR.Utilities`, `BAR.Debug`, `BAR.Lava`, and `BAR.GetModOptionsCopy` — since they aren'\''t engine API and otherwise break type-checking against the `Spring` stubs.'
-detach_bar_modules_description='The `detach-bar-modules-env` prereq exposes `BAR` to the widget/gadget sandbox (`luarules/system.lua`, `luaui/system.lua`), bootstraps `BAR = BAR or {}` in `init.lua`/`springOverrides.lua` before the detached defs, adds the consolidated `types/BAR.lua` stub, and lists `BAR` as a global in `.emmyrc.json`. Cherry-picked on top of `fmt` before the codemod runs.'
+detach_bar_modules_description='The `detach-bar-modules-env` prereq exposes `BAR` to the widget/gadget sandbox (`luarules/system.lua`, `luaui/system.lua`), bootstraps `BAR = BAR or {}` in `init.lua`/`springOverrides.lua` before the detached defs, adds the consolidated `types/BAR.lua` stub, lists `BAR` as a global in `.emmyrc.json`, and bootstraps the namespace in the spec harness (the builders' init previously rode engine-builders-env). Cherry-picked on top of `fmt` before the codemod runs.'
 
 run_detach_bar_modules() {
     "$CODEMOD" detach-bar-modules --path "$BAR" "${CODEMOD_EXCLUDES[@]}"
@@ -472,7 +475,7 @@ unit_status() {
 #
 # Rollup branches (`mig`, `fmt-llm`) carry many commits each from different
 # layers. The museum table renders one row per commit, in order, with a
-# clickable hash linking to the commit on the fork (FORK_OWNER). Reviewers
+# clickable hash linking to the commit on the canonical repo. Reviewers
 # walk the stack like exhibits — descriptions are intentionally one-line so
 # the table is scannable; the umbrella issue carries the rationale.
 
@@ -526,7 +529,7 @@ generate_museum_table() {
         if [[ -n "$pr_url" ]]; then
             commit_url="${pr_url}/commits/${long}"
         else
-            commit_url="https://github.com/${FORK_OWNER}/Beyond-All-Reason/commit/${long}"
+            commit_url="https://github.com/${UPSTREAM_SLUG}/commit/${long}"
         fi
         echo "| $i | [\`${short}\`](${commit_url}) \`${subject}\` | ${desc} |"
         i=$((i + 1))
