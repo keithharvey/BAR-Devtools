@@ -135,7 +135,10 @@ enter_distrobox "$@"
 # Optional: run_*, describe_*, post_commit_*, generate_*_pr_body functions.
 
 # Branches cherry-picked onto every leaf and mig branch before any transform.
-PREFIX_BRANCHES=("fix_stylua" "engine-builders-env")
+# engine-builders-env (Spring*->Engine* builders, recovered from
+# mig-spring-split) waits for spring-split proper; sharing-modules now owns
+# the modernized builders Spring-named.
+PREFIX_BRANCHES=("fix_stylua")
 
 TRANSFORMS=("fmt" "bracket_to_dot" "rename_aliases" "detach_bar_modules" "integration_tests" "busted_types")
 
