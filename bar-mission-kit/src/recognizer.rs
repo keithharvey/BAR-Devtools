@@ -420,6 +420,8 @@ fn annotate(value: &mut Value, objectives: &mut Vec<String>) {
     let first_string_semantic = match path.as_str() {
         "UnitDef" => Some("unit_def_name"),
         "Objective" => Some("objective_name"),
+        "Unit" => Some("unit_name"),
+        "Units.Transfer" => Some("unit_group"),
         _ => None,
     };
     if let Some(sem) = first_string_semantic {
