@@ -45,8 +45,8 @@ library *flags: build-lde
         {{flags}}
 
     info "Copying into BAR working tree..."
-    mkdir -p "$BAR_DIR/recoil-lua-library/library"
     clean_dir "$BAR_DIR/recoil-lua-library/library"
+    mkdir -p "$BAR_DIR/recoil-lua-library/library"
     cp -r "$RECOIL_DIR/rts/Lua/library/"* "$BAR_DIR/recoil-lua-library/library/"
     ok "Updated $BAR_DIR/recoil-lua-library/library/"
 
