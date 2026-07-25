@@ -511,8 +511,9 @@ museum_description() {
 }
 
 # Render a markdown table of every commit unique to <branch> vs origin/master,
-# in the order they were applied. Hashes link to the fork (where the branches
-# actually live) so reviewers can click through any individual commit.
+# in the order they were applied. Hashes link through the PR (pr_url/commits/)
+# so reviewers land on the commit in review context; these are only valid for
+# the pushed generation — hence --push implies --update-prs.
 generate_museum_table() {
     local branch="$1"
     local pr_url="$2"
@@ -1595,6 +1596,13 @@ else
 fi
 
 generate_all_pr_bodies
+
+# PR bodies embed commit SHAs (museum table); a force-push without a body
+# refresh guarantees dead links. Branches and bodies move as one transaction.
+if [[ "$DO_PUSH" == "true" && "$DO_UPDATE_PRS" != "true" ]]; then
+    info "--push implies --update-prs (PR bodies embed commit SHAs)"
+    DO_UPDATE_PRS=true
+fi
 
 if [[ "$DO_PUSH" == "true" ]] || [[ "$DO_UPDATE_PRS" == "true" ]]; then
     push_branches
