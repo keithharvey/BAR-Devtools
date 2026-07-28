@@ -72,13 +72,30 @@ function activate(context) {
 		vscode.languages.registerCompletionItemProvider(
 			{ language: "lua", pattern: "**/modules/missions/**/triggers/**" },
 			{
-				async provideCompletionItems() {
+				async provideCompletionItems(document, position) {
 					const vocab = await vocabulary(serverUrl());
 					if (!vocab) return [];
+					// What has been typed of a dotted expression already. VS Code
+					// replaces only the word under the cursor, so after "MatchFlow."
+					// a bare insert appends to the namespace instead of replacing
+					// it: MatchFlow.MatchFlow.Started().
+					const line = document.lineAt(position).text.slice(0, position.character);
+					const typed = (/[A-Za-z_][\w.]*$/.exec(line) || [""])[0];
 					const items = [];
 					const add = (label, insert, kind, sort, detail) => {
 						const item = new vscode.CompletionItem(label, kind);
-						item.insertText = insert;
+						item.insertText = new vscode.SnippetString(snippetize(insert));
+						// Filtering runs on the label, and the label is prose, so
+						// typing the verb would hide the item that inserts it.
+						item.filterText = `${label} ${insert}`;
+						if (typed && insert.toLowerCase().startsWith(typed.toLowerCase())) {
+							item.range = new vscode.Range(
+								position.line,
+								position.character - typed.length,
+								position.line,
+								position.character
+							);
+						}
 						item.sortText = sort;
 						item.detail = detail;
 						items.push(item);
@@ -101,6 +118,16 @@ function activate(context) {
 			}
 		)
 	);
+}
+
+/// Every literal in a palette template is something the author must replace,
+/// so make each one a tab stop rather than text to go hunting for.
+function snippetize(template) {
+	let n = 0;
+	return template
+		.replace(/\$/g, "\\$")
+		.replace(/"([^"]*)"/g, (_m, value) => `"\${${++n}:${value}}"`)
+		.replace(/, (\d+)\)/g, (_m, value) => `, \${${++n}:${value}})`);
 }
 
 let vocabCache = { at: 0, value: null };
