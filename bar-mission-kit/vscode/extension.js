@@ -84,7 +84,7 @@ function activate(context) {
 					const items = [];
 					const add = (label, insert, kind, sort, detail) => {
 						const item = new vscode.CompletionItem(label, kind);
-						item.insertText = new vscode.SnippetString(snippetize(insert));
+						item.insertText = new vscode.SnippetString(snippetize(insert, vocab));
 						// Filtering runs on the label, and the label is prose, so
 						// typing the verb would hide the item that inserts it.
 						item.filterText = `${label} ${insert}`;
@@ -121,12 +121,30 @@ function activate(context) {
 }
 
 /// Every literal in a palette template is something the author must replace,
-/// so make each one a tab stop rather than text to go hunting for.
-function snippetize(template) {
+/// so make each one a tab stop rather than text to go hunting for. Where the
+/// mission already declares the possible values, the stop is a CHOICE of
+/// them: OBJECTIVE and GROUP are not names to invent, they are names the
+/// roster and the objectives list already fixed.
+function snippetize(template, vocab) {
+	const choices = {
+		OBJECTIVE: vocab && vocab.objectives,
+		UNIT_NAME: vocab && vocab.unit_names,
+		GROUP: vocab && vocab.groups,
+	};
 	let n = 0;
 	return template
 		.replace(/\$/g, "\\$")
-		.replace(/"([^"]*)"/g, (_m, value) => `"\${${++n}:${value}}"`)
+		.replace(/"([^"]*)"/g, (_m, value) => {
+			const options = choices[value];
+			n += 1;
+			// A choice list needs its separators escaped, and an empty roster
+			// falls back to the placeholder rather than an empty picker.
+			if (options && options.length) {
+				const escaped = options.map((o) => o.replace(/[|,\\]/g, "\\$&")).join(",");
+				return `"\${${n}|${escaped}|}"`;
+			}
+			return `"\${${n}:${value}}"`;
+		})
 		.replace(/, (\d+)\)/g, (_m, value) => `, \${${++n}:${value}})`);
 }
 
@@ -229,11 +247,21 @@ async function pollOpenTarget(server) {
 		return;
 	}
 	note(`open request ${target.file}:${target.line}`);
-	const routed = routeIntoWorkspace(target.file);
+	let routed = routeIntoWorkspace(target.file);
 	if (!routed) {
-		// Silence here reads as "the button is broken".
-		note(`  not in this window; roots: ${workspaceRoots().map(([, real]) => real).join(", ")}`);
-		return;
+		// Not inside a workspace folder — but the panel serves missions that
+		// live BESIDE the workspace as readily as in it (see missionsRoot), and
+		// a dropped click there reads as a broken button. The window serving
+		// this mission opens it by path; other windows still decline, so one
+		// click still opens one editor.
+		const root = missionsRoot();
+		const file = realpath(target.file);
+		if (root && file.startsWith(realpath(root) + path.sep)) {
+			routed = file;
+		} else {
+			note(`  not in this window; roots: ${workspaceRoots().map(([, real]) => real).join(", ")}`);
+			return;
+		}
 	}
 	note(`  opening ${routed}`);
 	const row = Math.max(0, (target.line || 1) - 1);
