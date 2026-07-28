@@ -1,0 +1,5 @@
+# Generated, not authored: collapse in review. Both are tracked on purpose —
+# Cargo.lock is the build's reproducibility guarantee, and the fixtures are
+# compiled into the binary so the kit builds without a BAR checkout.
+bar-mission-kit/Cargo.lock linguist-generated=true
+bar-mission-kit/fixtures/** linguist-generated=true
