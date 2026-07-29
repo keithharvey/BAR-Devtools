@@ -1,0 +1,11 @@
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/deps/normpath-23a6b1154b94903e.d: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/base.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/cmp.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/error.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/common/mod.rs
+
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/deps/libnormpath-23a6b1154b94903e.rlib: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/base.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/cmp.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/error.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/common/mod.rs
+
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/deps/libnormpath-23a6b1154b94903e.rmeta: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/base.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/cmp.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/error.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/common/mod.rs
+
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/lib.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/base.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/cmp.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/error.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/normpath-1.5.1/src/common/mod.rs:

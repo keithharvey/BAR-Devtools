@@ -1,0 +1,14 @@
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/deps/serde-af11c0ba85decc7a.d: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/build/serde-1c625c0852c7042f/out/private.rs
+
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/deps/libserde-af11c0ba85decc7a.rlib: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/build/serde-1c625c0852c7042f/out/private.rs
+
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/deps/libserde-af11c0ba85decc7a.rmeta: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/build/serde-1c625c0852c7042f/out/private.rs
+
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/build/serde-1c625c0852c7042f/out/private.rs:
+
+# env-dep:OUT_DIR=/var/home/daniel/code/BAR-Devtools/bar-mission-kit/target/release/build/serde-1c625c0852c7042f/out

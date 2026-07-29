@@ -1,0 +1,7 @@
+/home/daniel/code/BAR-Devtools/bar-mission-kit/target/debug/deps/rust_i18n_macro-6b9a791c214431bf.d: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/minify_key.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/tr.rs
+
+/home/daniel/code/BAR-Devtools/bar-mission-kit/target/debug/deps/librust_i18n_macro-6b9a791c214431bf.so: /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/lib.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/minify_key.rs /home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/tr.rs
+
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/lib.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/minify_key.rs:
+/home/daniel/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/rust-i18n-macro-3.1.5/src/tr.rs:
