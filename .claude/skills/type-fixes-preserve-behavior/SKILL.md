@@ -42,6 +42,26 @@ Do not re-declare inside a closure what the enclosing function already computed.
 
 If a closure needs a value, it already has it as an upvalue.
 
+## Not every .lua file is Lua
+
+`mapgenerator/mapinfo_template.lua` is a `${PLACEHOLDER}` template. A bare
+`${START_POSITIONS}` inside a table is a parse error, and commenting it out
+silences the analyzer while breaking every generated map — the substituted
+block lands behind a `--`.
+
+A file the analyzer cannot parse for a structural reason belongs in
+`.emmyrc.json` `workspace.ignoreDir`, not in your edit set. Ask what the file
+*is* before treating a diagnostic on it as a defect.
+
+## Repair to the intent, not to whatever is in scope
+
+`stompableDefs[udid] = v` — `v` leaked from a previous loop and was nil, so the
+table was always empty. `ud` is in scope and makes the error go away; `true` is
+what the code meant, because the only read is `if stompableDefs[unitDefID]`.
+
+When a table is used as a set, the value is `true`. Look at the read sites
+before choosing the write.
+
 ## Verify before committing
 
 - `luajit -bl <file> >/dev/null` — syntax.
