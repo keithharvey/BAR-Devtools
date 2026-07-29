@@ -356,9 +356,30 @@ gh_host() {
     host_exec "$GH_HOST_BIN" "$@"
 }
 
+STYLUA_HOST_BIN=""
+resolve_host_stylua() {
+    if [[ -n "${STYLUA_BIN_OVERRIDE:-}" ]]; then echo "$STYLUA_BIN_OVERRIDE"; return 0; fi
+    local c
+    for c in "$HOME/.local/bin/stylua" "$HOME/.cargo/bin/stylua" \
+             /home/linuxbrew/.linuxbrew/bin/stylua /usr/local/bin/stylua /usr/bin/stylua; do
+        host_exec test -x "$c" && { echo "$c"; return 0; }
+    done
+    echo ""
+}
+
+# git runs on the host (git_bar -> host_exec), so stylua must too. Running it
+# in the container races the host's writes: a commit that creates files leaves
+# the container seeing the dirents but failing to read them
+# ("failed to read ./types/Debug.lua: No such file or directory").
 stylua_pass() {
     step "Running stylua..."
-    (cd "$BAR" && stylua .)
+    [[ -z "$STYLUA_HOST_BIN" ]] && STYLUA_HOST_BIN="$(resolve_host_stylua)"
+    if [[ -n "$STYLUA_HOST_BIN" ]]; then
+        host_exec sh -c "cd '$BAR' && '$STYLUA_HOST_BIN' ."
+    else
+        warn "stylua not found on host; running in-container (may race host writes)"
+        (cd "$BAR" && stylua .)
+    fi
 }
 
 # Warm the shared lux cache once — a cold `lx test` triggers a networked
