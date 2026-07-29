@@ -145,6 +145,11 @@ PREFIX_BRANCHES=("fix_stylua")
 
 TRANSFORMS=("fmt" "bracket_to_dot" "rename_aliases" "detach_bar_modules" "integration_tests" "busted_types")
 
+# Subset of TRANSFORMS that git blame should skip: mechanical rewrites only.
+# The gen(hand) pair is excluded — one is a hand restructure, the other is pure
+# addition, where --ignore-revs has nothing earlier to attribute to.
+BLAME_TRANSFORMS=("fmt" "bracket_to_dot" "rename_aliases" "detach_bar_modules")
+
 # -- fmt (stylua) -------------------------------------------------------------
 
 fmt_branch="fmt"
@@ -765,8 +770,6 @@ build_mig() {
 
     local mig_output_file="$BAR/.git/mig-output.txt"
     : > "$mig_output_file"
-    local transform_hashes=()
-
     for transform in "${TRANSFORMS[@]}"; do
         local commit_msg
         commit_msg=$(tvar "$transform" "commit")
@@ -776,27 +779,40 @@ build_mig() {
         git_bar add -A
         # Carried-commit leaves contributed their content via the prereq
         # cherry-pick earlier (and stylua left it alone). Skip an empty
-        # commit here — otherwise git aborts build_mig on "nothing to commit"
-        # and the transform hash recorded below would be stale.
+        # commit here — otherwise git aborts build_mig on "nothing to commit".
         if git_bar diff --cached --quiet; then
             info "  (skip) mig: $transform produced no changes — prereq commit already in mig"
         else
             git_bar commit -m "$commit_msg"
         fi
-        transform_hashes+=("$(git_bar rev-parse HEAD)")
     done
 
     # Cache transform hashes for the final blame-ignore commit on fmt-llm.
     # Committing the file here would conflict when fmt-llm-source env commits
     # are replayed onto new mig builds with different transform SHAs.
+    #
+    # Read back off the branch by subject rather than recorded in the loop
+    # above: a transform whose content arrived via a prereq cherry-pick commits
+    # nothing there, and the cherry-pick that does carry it has its own SHA.
     local blame_cache="$BAR/.git/mig-blame-hashes.txt"
     : > "$blame_cache"
-    for i in "${!TRANSFORMS[@]}"; do
-        local transform="${TRANSFORMS[$i]}"
-        local commit_msg
-        commit_msg=$(tvar "$transform" "commit")
-        printf '%s\t%s\n' "${transform_hashes[$i]}" "$commit_msg" >> "$blame_cache"
+    local blame_subjects=()
+    for transform in "${BLAME_TRANSFORMS[@]}"; do
+        blame_subjects+=("$(tvar "$transform" "commit")")
     done
+    while IFS=$'\t' read -r sha subject; do
+        for want in "${blame_subjects[@]}"; do
+            [[ "$subject" == "$want" ]] || continue
+            printf '%s\t%s\n' "$sha" "$subject" >> "$blame_cache"
+            break
+        done
+    done < <(git_bar log --reverse --format='%H%x09%s' "origin/master..HEAD")
+
+    local found
+    found=$(wc -l < "$blame_cache")
+    if (( found != ${#BLAME_TRANSFORMS[@]} )); then
+        warn "blame-ignore: matched $found of ${#BLAME_TRANSFORMS[@]} transform commits on mig"
+    fi
 
     run_tests "mig"
 
