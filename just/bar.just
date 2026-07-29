@@ -291,13 +291,53 @@ setup-hooks:
         info "Clone it first: just repos::clone bar"
         exit 1
     fi
+    # A --check hook is only meaningful when stylua agrees with .gitattributes
+    # about line endings; otherwise every correctly-formatted file fails.
+    if grep -q 'eol=crlf' "$BAR_DIR/.gitattributes" 2>/dev/null \
+        && grep -q 'line_endings = "Unix"' "$BAR_DIR/.stylua.toml" 2>/dev/null; then
+        err ".gitattributes says eol=crlf but .stylua.toml says line_endings = \"Unix\""
+        info "Every commit would be rejected. Set line_endings = \"Windows\" first."
+        exit 1
+    fi
     mkdir -p "$(dirname "$hook")"
-    printf '%s\n' \
-        '#!/usr/bin/env bash' \
-        'set -e' \
-        'echo "[pre-commit] Running stylua..."' \
-        'lx --lua-version 5.1 exec stylua .' \
-        > "$hook"
+    cat > "$hook" <<'HOOK'
+    #!/usr/bin/env bash
+    # Checks the staged Lua only, and refuses rather than rewriting: a hook that
+    # edits the tree mid-commit changes what you are committing behind your back.
+    set -euo pipefail
+
+    cd "$(git rev-parse --show-toplevel)"
+
+    mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR -- '*.lua')
+    ((${#staged[@]})) || exit 0
+
+    # stylua ignores .styluaignore for paths passed explicitly, so filter here.
+    check=()
+    for f in "${staged[@]}"; do
+        [[ -f "$f" ]] || continue
+        skip=0
+        if [[ -f .styluaignore ]]; then
+            while IFS= read -r pat; do
+                [[ -z "$pat" || "$pat" == \#* ]] && continue
+                pat="${pat%/}"
+                if [[ "$f" == "$pat" || "$f" == "$pat"/* ]]; then skip=1; break; fi
+            done < .styluaignore
+        fi
+        ((skip)) || check+=("$f")
+    done
+    ((${#check[@]})) || exit 0
+
+    if command -v stylua >/dev/null 2>&1; then
+        stylua --check "${check[@]}" || fail=1
+    else
+        lx --lua-version 5.1 exec stylua --check "${check[@]}" || fail=1
+    fi
+    if [[ -n "${fail:-}" ]]; then
+        echo "[pre-commit] stylua: staged Lua is not formatted." >&2
+        echo "[pre-commit] run 'just bar::fmt', re-stage, and commit again." >&2
+        exit 1
+    fi
+    HOOK
     chmod +x "$hook"
     ok "Installed pre-commit hook at $hook"
     if [ -f "$BAR_DIR/.git-blame-ignore-revs" ]; then
