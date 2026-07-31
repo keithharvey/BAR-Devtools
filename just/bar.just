@@ -238,27 +238,6 @@ integrations *args: require-bar
     fi
     $compose up --build --abort-on-container-exit {{args}}
 
-# Rebase a stacked branch chain root-first, e.g. `just bar::restack upstream/master hello_pawns matchflow_extraction bar_editor`
-restack base +branches: require-bar
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source "$DEVTOOLS_DIR/scripts/common.sh"
-    cd "$BAR_DIR"
-    git diff --quiet && git diff --cached --quiet || { err "Working tree not clean"; exit 1; }
-    prev_old="" prev_new="{{base}}"
-    for br in {{branches}}; do
-        old="$(git rev-parse "$br")"
-        step "Rebasing $br onto $prev_new..."
-        if [ -z "$prev_old" ]; then
-            git rebase "$prev_new" "$br" || { err "Conflict in $br. Resolve, 'git rebase --continue', then restack the rest: just bar::restack $br <remaining>"; exit 1; }
-        else
-            git rebase --onto "$prev_new" "$prev_old" "$br" || { err "Conflict in $br. Resolve, 'git rebase --continue', then restack the rest: just bar::restack $br <remaining>"; exit 1; }
-        fi
-        prev_old="$old" prev_new="$br"
-    done
-    ok "Stack rebased: {{branches}}"
-    info "Push with: git push --force-with-lease <remote> {{branches}}"
-
 # Run all BAR tests (unit + integrations)
 test: units integrations
 
