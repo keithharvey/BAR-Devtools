@@ -115,6 +115,7 @@ pub fn recognize_file_with(
         order: 0,
         bindings: BTreeMap::new(),
         exports: Vec::new(),
+        imports: BTreeMap::new(),
     };
 
     let chunk: LuaChunk = tree.get_chunk_node();
@@ -168,6 +169,7 @@ pub fn recognize_file_with(
         surface,
         declares: path.ends_with("units.lua"),
         source,
+        imports: &rec.imports,
     };
     for group in &mut groups {
         for trigger in &mut group.triggers {
@@ -217,8 +219,7 @@ pub fn recognize_file_with(
             group_refs: nouns.group_refs,
             unit_exports,
             objective_exports,
-            unit_export_refs: nouns.unit_export_refs,
-            objective_export_refs: nouns.objective_export_refs,
+            export_refs: nouns.export_refs,
             insert_trigger_at: source.len(),
             groups,
             opaque: rec.opaque,
@@ -243,6 +244,8 @@ struct Rec<'s> {
     bindings: BTreeMap<String, Value>,
     /// The file's `return { key = local }`: key -> the bound value.
     exports: Vec<(String, Value, Span)>,
+    /// `local X = VFS.Include("<path>")`: alias -> the included file.
+    imports: BTreeMap<String, String>,
 }
 
 /// A verb expression unrolled from the nested call CST:
@@ -352,6 +355,13 @@ impl<'s> Rec<'s> {
                     match values.get(i) {
                         Some(expr) => {
                             let value = self.value(expr);
+                            if let Value::Verb { path, calls, .. } = &value {
+                                if path == "VFS.Include" {
+                                    if let Some(Value::String { value: included, .. }) = calls.first().and_then(|c| c.args.first()) {
+                                        self.imports.insert(name.clone(), included.clone());
+                                    }
+                                }
+                            }
                             self.bindings.insert(name, value);
                         }
                         None => self.finding(span, format!("local '{name}' binds no value")),
@@ -574,8 +584,13 @@ impl<'s> Rec<'s> {
                 if unrolled.pending.is_some() {
                     return self.opaque_value(span, "dangling index after a call");
                 }
-                if let Some(bound) = self.bindings.get(&unrolled.path[0]).cloned() {
-                    return self.through_binding(bound, unrolled, span);
+                // An import alias is a reference into another file, resolved
+                // by the annotator against that file's exports — not a value
+                // to substitute.
+                if !self.imports.contains_key(&unrolled.path[0]) {
+                    if let Some(bound) = self.bindings.get(&unrolled.path[0]).cloned() {
+                        return self.through_binding(bound, unrolled, span);
+                    }
                 }
                 let path = unrolled.path.join(".");
                 if unrolled.calls.is_empty() {
@@ -736,8 +751,7 @@ struct Nouns {
     group_defs: Vec<String>,
     unit_refs: Vec<NameRef>,
     group_refs: Vec<NameRef>,
-    unit_export_refs: Vec<NameRef>,
-    objective_export_refs: Vec<NameRef>,
+    export_refs: Vec<ExportRef>,
 }
 
 struct Annotator<'s> {
@@ -745,6 +759,8 @@ struct Annotator<'s> {
     /// units.lua declares names; every other file references them.
     declares: bool,
     source: &'s str,
+    /// alias -> included file, from `local X = VFS.Include(...)`.
+    imports: &'s BTreeMap<String, String>,
 }
 
 impl<'s> Annotator<'s> {
@@ -825,28 +841,29 @@ impl<'s> Annotator<'s> {
     /// stamping each invocation's args from the signature it lands on, then
     /// recurse into every argument.
     fn value(&self, value: &mut Value, nouns: &mut Nouns) {
-        // `Units.hub` / `Objectives.relieve` are references to exports: they
-        // read as the Unit / Objective surface, and the key is cross-checked
-        // mission-wide against what the definition file returned.
-        // The verb folds into the dotted path (`Units.hub.IsSpotted`, as
-        // `Team.Player.Has` does), so the tail past the key is the member.
-        let export_of = |path: &str| -> Option<(&'static str, String, Option<String>)> {
+        // `Units.hub` where `local Units = VFS.Include(".../units.lua")`: a
+        // reference to that file's export. It reads as the Unit or Objective
+        // surface — by which definition file was included — and the verb folds
+        // into the dotted path (`Units.hub.IsSpotted`, as `Team.Player.Has`).
+        let export_of = |path: &str| -> Option<(&'static str, String, String, Option<String>)> {
             let parts: Vec<&str> = path.split('.').collect();
-            let head = match parts.first() {
-                Some(&"Units") => "Unit",
-                Some(&"Objectives") => "Objective",
-                _ => return None,
+            let file = self.imports.get(*parts.first()?)?;
+            let head = if file.ends_with("units.lua") {
+                "Unit"
+            } else if file.ends_with("objectives.lua") {
+                "Objective"
+            } else {
+                return None;
             };
             match parts.as_slice() {
-                [_, key] => Some((head, key.to_string(), None)),
-                [_, key, member] => Some((head, key.to_string(), Some(member.to_string()))),
+                [_, key] => Some((head, file.clone(), key.to_string(), None)),
+                [_, key, member] => Some((head, file.clone(), key.to_string(), Some(member.to_string()))),
                 _ => None,
             }
         };
         if let Value::Name { path, span } = value {
-            if let Some((head, key, _)) = export_of(path) {
-                let r = NameRef { name: key, line: line_of(self.source, span.0) };
-                if head == "Unit" { nouns.unit_export_refs.push(r) } else { nouns.objective_export_refs.push(r) }
+            if let Some((_, file, key, _)) = export_of(path) {
+                nouns.export_refs.push(ExportRef { file, key, line: line_of(self.source, span.0) });
             }
             return;
         }
@@ -854,9 +871,8 @@ impl<'s> Annotator<'s> {
             return;
         };
         let mut current: Option<crate::types::FnSig> = match export_of(path) {
-            Some((head, key, member)) => {
-                let r = NameRef { name: key, line: line_of(self.source, span.0) };
-                if head == "Unit" { nouns.unit_export_refs.push(r) } else { nouns.objective_export_refs.push(r) }
+            Some((head, file, key, member)) => {
+                nouns.export_refs.push(ExportRef { file, key, line: line_of(self.source, span.0) });
                 let handle = self.surface.resolve_path(head);
                 match member {
                     None => handle,
@@ -988,13 +1004,11 @@ mod tests {
 
     #[test]
     fn export_references_read_as_the_surface_they_stand_for() {
-        let src = "When(Units.hub.IsSpotted(Team.Player)).Do(Combat.Protect(Units.hub))\nWhen(Objectives.relieve.IsComplete()).Do(MatchFlow.Victory(Team.Player))\n";
+        let src = "local Units = VFS.Include(\"modules/missions/t/units.lua\")\nlocal O = VFS.Include(\"modules/missions/t/objectives.lua\")\nWhen(Units.hub.IsSpotted(Team.Player)).Do(Combat.Protect(Units.hub))\nWhen(O.relieve.IsComplete()).Do(MatchFlow.Victory(Team.Player))\n";
         let r = recognize_file("t/triggers/a.lua", src).unwrap();
         assert!(findings(&r).is_empty(), "{:?}", findings(&r));
-        let units: Vec<&str> = r.file.unit_export_refs.iter().map(|x| x.name.as_str()).collect();
-        assert_eq!(units, vec!["hub", "hub"]);
-        let objectives: Vec<&str> = r.file.objective_export_refs.iter().map(|x| x.name.as_str()).collect();
-        assert_eq!(objectives, vec!["relieve"]);
+        let refs: Vec<(&str, &str)> = r.file.export_refs.iter().map(|x| (x.file.rsplit('/').next().unwrap(), x.key.as_str())).collect();
+        assert_eq!(refs, vec![("units.lua", "hub"), ("units.lua", "hub"), ("objectives.lua", "relieve")]);
     }
 
     #[test]

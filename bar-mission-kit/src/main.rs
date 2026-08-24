@@ -303,9 +303,7 @@ fn cross_check_names(files: &[model::FileAst]) -> Vec<model::Finding> {
     // Objective ids get the same contract once a definition site exists:
     // objectives.lua declares, everything else references — the runtime
     // fails these loads, so check mode reports them.
-    if files.iter().any(|f| f.path.ends_with("units.lua") || recognizer::is_objectives(&f.path)) {
-        findings.extend(cross_check_exports(files));
-    }
+    findings.extend(cross_check_exports(files));
     if files.iter().any(|f| recognizer::is_objectives(&f.path)) {
         let objective_defs: std::collections::HashSet<&str> =
             files.iter().flat_map(|f| f.objective_defs.iter().map(String::as_str)).collect();
@@ -328,27 +326,35 @@ fn cross_check_names(files: &[model::FileAst]) -> Vec<model::Finding> {
     findings
 }
 
-/// Exports are the other half of the contract: `Units.<key>` and
-/// `Objectives.<key>` must name something a definition file returned.
+/// Exports are the other half of the contract: `Units.hub` through
+/// `local Units = VFS.Include(".../units.lua")` must name something that file
+/// returned. The included file is matched by its last two path components,
+/// since the walk's paths are mission-relative and the include's are not.
 fn cross_check_exports(files: &[model::FileAst]) -> Vec<model::Finding> {
+    fn tail(path: &str) -> String {
+        let parts: Vec<&str> = path.split(|c| c == '/' || c == '\\').filter(|p| !p.is_empty()).collect();
+        parts.iter().rev().take(2).rev().cloned().collect::<Vec<_>>().join("/")
+    }
     let mut findings = Vec::new();
-    let pairs: [(&str, fn(&model::FileAst) -> &Vec<model::Export>, fn(&model::FileAst) -> &Vec<model::NameRef>, &str); 2] = [
-        ("Units", |f| &f.unit_exports, |f| &f.unit_export_refs, "units.lua"),
-        ("Objectives", |f| &f.objective_exports, |f| &f.objective_export_refs, "objectives.lua"),
-    ];
-    for (table, exports, refs, site) in pairs {
-        let keys: std::collections::HashSet<&str> =
-            files.iter().flat_map(|f| exports(f).iter().map(|e| e.key.as_str())).collect();
-        for file in files {
-            for r in refs(file) {
-                if !keys.contains(r.name.as_str()) {
-                    findings.push(model::Finding {
-                        path: file.path.clone(),
-                        line: r.line,
-                        message: format!("{table}.{}: {site} exports no such key", r.name),
-                        span: None,
-                    });
-                }
+    for file in files {
+        for r in &file.export_refs {
+            let wanted = tail(&r.file);
+            let Some(target) = files.iter().find(|f| tail(&f.path) == wanted) else {
+                continue; // a partial walk: nothing to check against
+            };
+            let keys: Vec<&str> = target
+                .unit_exports
+                .iter()
+                .chain(target.objective_exports.iter())
+                .map(|e| e.key.as_str())
+                .collect();
+            if !keys.contains(&r.key.as_str()) {
+                findings.push(model::Finding {
+                    path: file.path.clone(),
+                    line: r.line,
+                    message: format!("{}: {} exports no such key", r.key, wanted),
+                    span: None,
+                });
             }
         }
     }
@@ -583,14 +589,14 @@ Objective("find_the_enclave")
         .unwrap();
         let trigger = crate::recognizer::recognize_file(
             "m/triggers/a.lua",
-            "When(Units.hub.IsSpotted(Team.Player)).Do(Objectives.relieve.Complete())\nWhen(Units.tower.IsDestroyed()).Do(Objectives.ghost.Complete())\n",
+            "local Units = VFS.Include(\"modules/missions/m/units.lua\")\nlocal Objectives = VFS.Include(\"modules/missions/m/objectives.lua\")\nWhen(Units.hub.IsSpotted(Team.Player)).Do(Objectives.relieve.Complete())\nWhen(Units.tower.IsDestroyed()).Do(Objectives.ghost.Complete())\n",
         )
         .unwrap();
         let findings = super::cross_check_names(&[board.file, roster.file, trigger.file]);
         let messages: Vec<&str> = findings.iter().map(|f| f.message.as_str()).collect();
         assert_eq!(messages.len(), 2, "{messages:?}");
-        assert!(messages.iter().any(|m| m.starts_with("Units.tower:")));
-        assert!(messages.iter().any(|m| m.starts_with("Objectives.ghost:")));
+        assert!(messages.iter().any(|m| m.starts_with("tower: m/units.lua")));
+        assert!(messages.iter().any(|m| m.starts_with("ghost: m/objectives.lua")));
     }
 
     #[test]

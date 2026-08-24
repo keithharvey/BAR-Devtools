@@ -48,10 +48,9 @@ pub struct FileAst {
     /// unnamed handle by its key. objectives.lua exports the same way.
     pub unit_exports: Vec<Export>,
     pub objective_exports: Vec<Export>,
-    /// `Units.<key>` / `Objectives.<key>` references this file makes — real
-    /// references, cross-checked against the exports mission-wide.
-    pub unit_export_refs: Vec<NameRef>,
-    pub objective_export_refs: Vec<NameRef>,
+    /// References through an include — `local Units = VFS.Include(".../units.lua")`
+    /// then `Units.hub` — cross-checked against what that file exports.
+    pub export_refs: Vec<ExportRef>,
     /// Byte offset where a whole new trigger chain can be appended (EOF).
     pub insert_trigger_at: usize,
     /// Sections in file order. Chains before any `---@group` land in an
@@ -182,6 +181,15 @@ pub struct Opaque {
 pub struct Export {
     pub key: String,
     pub name: String,
+    pub line: usize,
+}
+
+/// A reference to an included file's export: the include path as written,
+/// the key, and the line.
+#[derive(Serialize, Debug, Clone)]
+pub struct ExportRef {
+    pub file: String,
+    pub key: String,
     pub line: usize,
 }
 
