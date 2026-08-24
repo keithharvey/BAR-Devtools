@@ -63,10 +63,12 @@ fn scan_value(trigger_id: &str, verb: &str, value: &Value, nodes: &mut String, e
             _ => {}
         }
     } else if path == "MatchFlow.Victory" || path == "MatchFlow.Defeat" {
-        let terminal = if path.ends_with("Victory") { "VICTORY" } else { "DEFEAT" };
-        nodes.push_str(&format!(
-            "    {terminal} [shape=doublecircle];\n"
-        ));
+        let terminal = if path.ends_with("Victory") {
+            "VICTORY"
+        } else {
+            "DEFEAT"
+        };
+        nodes.push_str(&format!("    {terminal} [shape=doublecircle];\n"));
         edges.push_str(&format!("    {trigger_id} -> {terminal};\n"));
     }
     // nested verb args (e.g. conditions wrapping other verbs)
@@ -110,8 +112,14 @@ When(Objective("build_pawns").IsComplete())
             surface: serde_json::Value::Null,
         };
         let dot = super::dot(&ast);
-        assert!(dot.contains("t_triggers_win_lua_1 -> objective_build_pawns"), "{dot}");
-        assert!(dot.contains("objective_build_pawns -> t_triggers_win_lua_2"), "{dot}");
+        assert!(
+            dot.contains("t_triggers_win_lua_1 -> objective_build_pawns"),
+            "{dot}"
+        );
+        assert!(
+            dot.contains("objective_build_pawns -> t_triggers_win_lua_2"),
+            "{dot}"
+        );
         assert!(dot.contains("t_triggers_win_lua_2 -> VICTORY"), "{dot}");
     }
 }

@@ -14,8 +14,8 @@
 use crate::model::*;
 use crate::types::TypeSurface;
 use emmylua_parser::{
-    LuaAstNode, LuaCallExpr, LuaChunk, LuaExpr, LuaIndexKey, LuaLiteralToken, LuaParser,
-    LuaStat, LuaTableExpr, LuaVarExpr, ParserConfig,
+    LuaAstNode, LuaCallExpr, LuaChunk, LuaExpr, LuaIndexKey, LuaLiteralToken, LuaParser, LuaStat,
+    LuaTableExpr, LuaVarExpr, ParserConfig,
 };
 use std::collections::BTreeMap;
 
@@ -31,6 +31,8 @@ pub enum FileKind {
     /// Objective declaration chains — the runtime injects a different env
     /// there, and so does the recognizer.
     Objectives,
+    /// variables.lua at the mission root: typed slots, Variable chains.
+    Variables,
 }
 
 impl FileKind {
@@ -46,6 +48,8 @@ impl FileKind {
             FileKind::ModePreset
         } else if is_objectives(path) {
             FileKind::Objectives
+        } else if is_definition_site(path, "variables.lua") {
+            FileKind::Variables
         } else {
             FileKind::Statements
         }
@@ -55,8 +59,14 @@ impl FileKind {
 /// The mission-root objectives.lua — the definition site. A trigger file
 /// that happens to be called objectives.lua is still a trigger file.
 pub fn is_objectives(path: &str) -> bool {
+    is_definition_site(path, "objectives.lua")
+}
+
+/// A mission-root definition file by name (units.lua, objectives.lua,
+/// variables.lua): the basename matches and it is not under triggers/ or modes/.
+pub fn is_definition_site(path: &str, name: &str) -> bool {
     let components: Vec<&str> = path.split(|c| c == '/' || c == '\\').collect();
-    components.last() == Some(&"objectives.lua")
+    components.last() == Some(&name)
         && !components.iter().any(|c| *c == "triggers" || *c == "modes")
 }
 
@@ -64,8 +74,16 @@ pub fn is_objectives(path: &str) -> bool {
 /// enforces these at Finalize; declaring them keeps check mode's findings
 /// aligned. (Not derivable from the types — a required call is semantics.)
 const REQUIRED_STEP: &[(&str, &str, &str)] = &[
-    ("When", "Do", "trigger chain has no Do — every statement needs at least one effect"),
-    ("Spawn", "At", "spawn chain has no At — every spawn needs a position"),
+    (
+        "When",
+        "Do",
+        "trigger chain has no Do — every statement needs at least one effect",
+    ),
+    (
+        "Spawn",
+        "At",
+        "spawn chain has no At — every spawn needs a position",
+    ),
 ];
 
 pub struct Recognized {
@@ -101,6 +119,7 @@ pub fn recognize_file_with(
     // everything else speaks the statement grammar.
     let heads = match kind {
         FileKind::Objectives => surface.objective_heads(),
+        FileKind::Variables => surface.variable_heads(),
         _ => surface.statement_heads(),
     };
     let mut rec = Rec {
@@ -109,7 +128,10 @@ pub fn recognize_file_with(
         kind,
         heads: heads.clone(),
         surface,
-        groups: vec![Group { label: None, triggers: Vec::new() }],
+        groups: vec![Group {
+            label: None,
+            triggers: Vec::new(),
+        }],
         opaque: Vec::new(),
         findings: Vec::new(),
         order: 0,
@@ -130,6 +152,8 @@ pub fn recognize_file_with(
     // so the key is also a declaration the cross-check must accept.
     let mut unit_exports = Vec::new();
     let mut objective_exports = Vec::new();
+    let mut group_exports = Vec::new();
+    let mut variable_exports = Vec::new();
     for (key, value, span) in &rec.exports {
         let line = line_of(source, span.0);
         match value {
@@ -145,10 +169,17 @@ pub fn recognize_file_with(
                 });
                 unit_exports.push(Export { key: key.clone(), name: named.unwrap_or_else(|| key.clone()), line });
             }
+            // A group as a value and a typed slot: exports by their own name.
+            Value::Verb { path, calls, .. } if path == "Group" || path == "Variable" => {
+                if let Some(Value::String { value: name, .. }) = calls.first().and_then(|c| c.args.first()) {
+                    let list = if path == "Group" { &mut group_exports } else { &mut variable_exports };
+                    list.push(Export { key: key.clone(), name: name.clone(), line });
+                }
+            }
             _ => rec.findings.push(Finding {
                 path: rec.path.clone(),
                 line,
-                message: format!("export '{key}' is not a Spawn, Claim or Objective handle of this file"),
+                message: format!("export '{key}' is not a Spawn, Claim, Group, Objective or Variable of this file"),
                 span: None,
             }),
         }
@@ -173,7 +204,11 @@ pub fn recognize_file_with(
     };
     for group in &mut groups {
         for trigger in &mut group.triggers {
-            let head = trigger.steps.first().map(|s| s.verb.clone()).unwrap_or_default();
+            let head = trigger
+                .steps
+                .first()
+                .map(|s| s.verb.clone())
+                .unwrap_or_default();
             for step in &mut trigger.steps {
                 // The head resolves through its global; chained verbs through
                 // the head's chain class — the same split the runtime's env
@@ -182,7 +217,10 @@ pub fn recognize_file_with(
                 let sig = if step.verb == head {
                     surface.step_sig(&head, &head).cloned()
                 } else {
-                    heads.get(&head).and_then(|class| surface.member_sig(class, &step.verb)).cloned()
+                    heads
+                        .get(&head)
+                        .and_then(|class| surface.member_sig(class, &step.verb))
+                        .cloned()
                 };
                 if let Some(sig) = sig {
                     // The definition site's head argument IS the declaration;
@@ -202,6 +240,11 @@ pub fn recognize_file_with(
                 nouns.unit_defs.push(export.name.clone());
             }
         }
+        for export in &group_exports {
+            if !nouns.group_defs.contains(&export.name) {
+                nouns.group_defs.push(export.name.clone());
+            }
+        }
     }
     nouns.objectives.sort();
     nouns.objectives.dedup();
@@ -219,6 +262,8 @@ pub fn recognize_file_with(
             group_refs: nouns.group_refs,
             unit_exports,
             objective_exports,
+            group_exports,
+            variable_exports,
             export_refs: nouns.export_refs,
             insert_trigger_at: source.len(),
             groups,
@@ -265,12 +310,20 @@ impl<'s> Rec<'s> {
     fn finding(&mut self, span: Span, message: String) {
         let line = self.line_of(span.0);
         let path = self.path.clone();
-        self.findings.push(Finding { path, line, message, span: None });
+        self.findings.push(Finding {
+            path,
+            line,
+            message,
+            span: None,
+        });
     }
 
     fn mark_opaque(&mut self, span: Span, reason: &str) {
         self.finding(span, reason.to_string());
-        self.opaque.push(Opaque { span, reason: reason.to_string() });
+        self.opaque.push(Opaque {
+            span,
+            reason: reason.to_string(),
+        });
     }
 
     fn head_list(&self) -> String {
@@ -314,7 +367,10 @@ impl<'s> Rec<'s> {
                             let key = match field.get_field_key() {
                                 Some(LuaIndexKey::Name(token)) => token.get_name_text().to_string(),
                                 _ => {
-                                    self.finding(span, "an export needs a name: `return { hub = hub }`".into());
+                                    self.finding(
+                                        span,
+                                        "an export needs a name: `return { hub = hub }`".into(),
+                                    );
                                     continue;
                                 }
                             };
@@ -326,7 +382,10 @@ impl<'s> Rec<'s> {
                             self.exports.push((key, value, field_span));
                         }
                     }
-                    _ => self.mark_opaque(span, "a mission file returns a table of its own handles, or nothing"),
+                    _ => self.mark_opaque(
+                        span,
+                        "a mission file returns a table of its own handles, or nothing",
+                    ),
                 }
             }
             // Mode presets return their chain; the return IS the statement.
@@ -357,7 +416,10 @@ impl<'s> Rec<'s> {
                             let value = self.value(expr);
                             if let Value::Verb { path, calls, .. } = &value {
                                 if path == "VFS.Include" {
-                                    if let Some(Value::String { value: included, .. }) = calls.first().and_then(|c| c.args.first()) {
+                                    if let Some(Value::String {
+                                        value: included, ..
+                                    }) = calls.first().and_then(|c| c.args.first())
+                                    {
                                         self.imports.insert(name.clone(), included.clone());
                                     }
                                 }
@@ -435,7 +497,13 @@ impl<'s> Rec<'s> {
                 }
             };
             let line = self.line_of(invocation.span.0);
-            steps.push(Step { verb, line, span: invocation.span, args: invocation.args, remove_span: (0, 0) });
+            steps.push(Step {
+                verb,
+                line,
+                span: invocation.span,
+                args: invocation.args,
+                remove_span: (0, 0),
+            });
         }
 
         // Grammar checks (also the validator's rules). No terminator: the
@@ -454,7 +522,10 @@ impl<'s> Rec<'s> {
             .unwrap_or_default();
         for step in steps.iter().skip(1) {
             if step.verb == "Register" {
-                self.finding(step.span, "Register is gone — chains end at their last Do".into());
+                self.finding(
+                    step.span,
+                    "Register is gone — chains end at their last Do".into(),
+                );
             } else if !chain_verbs.iter().any(|v| v == &step.verb) {
                 self.finding(
                     step.span,
@@ -496,7 +567,11 @@ impl<'s> Rec<'s> {
         match expr {
             LuaExpr::NameExpr(name) => {
                 let text = name.get_name_text()?;
-                Some(Unrolled { path: vec![text.to_string()], calls: Vec::new(), pending: None })
+                Some(Unrolled {
+                    path: vec![text.to_string()],
+                    calls: Vec::new(),
+                    pending: None,
+                })
             }
             LuaExpr::IndexExpr(index) => {
                 let prefix = index.get_prefix_expr()?;
@@ -533,7 +608,11 @@ impl<'s> Rec<'s> {
                     .map(|list| node_span(&list))
                     .unwrap_or_else(|| node_span(call));
                 let name = unrolled.pending.take();
-                unrolled.calls.push(Invocation { name, args, span: call_span });
+                unrolled.calls.push(Invocation {
+                    name,
+                    args,
+                    span: call_span,
+                });
                 Some(unrolled)
             }
             _ => {
@@ -631,25 +710,43 @@ impl<'s> Rec<'s> {
         let rest = &unrolled.path[1..];
         let mut calls = unrolled.calls;
         match bound {
-            Value::Verb { path, calls: mut bound_calls, span: bound_span } => {
+            Value::Verb {
+                path,
+                calls: mut bound_calls,
+                span: bound_span,
+            } => {
                 // `alias.Verb(...)` unrolls as path [alias, Verb] + an unnamed
                 // call: the segment names the invocation on the bound chain.
                 if rest.len() == 1 && calls.first().map(|c| c.name.is_none()).unwrap_or(false) {
                     calls[0].name = Some(rest[0].clone());
                     bound_calls.extend(calls);
-                    return Value::Verb { path, calls: bound_calls, span: bound_span };
+                    return Value::Verb {
+                        path,
+                        calls: bound_calls,
+                        span: bound_span,
+                    };
                 }
                 if rest.is_empty() && calls.is_empty() {
-                    return Value::Verb { path, calls: bound_calls, span: bound_span };
+                    return Value::Verb {
+                        path,
+                        calls: bound_calls,
+                        span: bound_span,
+                    };
                 }
                 if calls.is_empty() {
                     // A field off a bound call — a preset's `ModeDSL.Mode` off
                     // `VFS.Include(...)` — is a reference by the alias's own
                     // name; the surface resolves it or leaves it unstamped.
-                    return Value::Name { path: unrolled.path.join("."), span };
+                    return Value::Name {
+                        path: unrolled.path.join("."),
+                        span,
+                    };
                 }
                 if rest.is_empty() {
-                    return self.opaque_value(span, "calling a bound value — chain a verb onto it instead");
+                    return self.opaque_value(
+                        span,
+                        "calling a bound value — chain a verb onto it instead",
+                    );
                 }
                 self.opaque_value(span, "nested index into a bound value")
             }
@@ -663,7 +760,10 @@ impl<'s> Rec<'s> {
                     Value::Verb { path, calls, span }
                 }
             }
-            literal @ (Value::String { .. } | Value::Number { .. } | Value::Boolean { .. } | Value::Table { .. }) => {
+            literal @ (Value::String { .. }
+            | Value::Number { .. }
+            | Value::Boolean { .. }
+            | Value::Table { .. }) => {
                 if !rest.is_empty() || !calls.is_empty() {
                     return self.opaque_value(span, "a bound literal takes no index or call");
                 }
@@ -675,7 +775,10 @@ impl<'s> Rec<'s> {
 
     fn opaque_value(&mut self, span: Span, reason: &str) -> Value {
         self.finding(span, reason.to_string());
-        Value::Opaque { span, reason: reason.to_string() }
+        Value::Opaque {
+            span,
+            reason: reason.to_string(),
+        }
     }
 
     fn table(&mut self, table: &LuaTableExpr, span: Span) -> Value {
@@ -723,7 +826,10 @@ impl<'s> Rec<'s> {
                 .map(|a| a.trim().trim_matches('"').to_string())
                 .filter(|a| !a.is_empty())
                 .collect();
-            out.push(Decorator { name: name.to_string(), args });
+            out.push(Decorator {
+                name: name.to_string(),
+                args,
+            });
         }
         out.reverse();
         out
@@ -782,7 +888,11 @@ impl<'s> Annotator<'s> {
         for (param, arg) in sig.params.iter().zip(args.iter_mut()) {
             let (name, type_name) = param;
             match arg {
-                Value::String { value, span, semantic } => {
+                Value::String {
+                    value,
+                    span,
+                    semantic,
+                } => {
                     if let Some(slug) = self.surface.semantic_for(type_name) {
                         self.collect(&slug, value, span.0, nouns, declares_objective);
                         *semantic = Some(slug);
@@ -800,7 +910,14 @@ impl<'s> Annotator<'s> {
         }
     }
 
-    fn collect(&self, slug: &str, value: &str, at: usize, nouns: &mut Nouns, declares_objective: bool) {
+    fn collect(
+        &self,
+        slug: &str,
+        value: &str,
+        at: usize,
+        nouns: &mut Nouns,
+        declares_objective: bool,
+    ) {
         match slug {
             "objective_name" => {
                 nouns.objectives.push(value.to_string());
@@ -852,18 +969,29 @@ impl<'s> Annotator<'s> {
                 "Unit"
             } else if file.ends_with("objectives.lua") {
                 "Objective"
+            } else if file.ends_with("variables.lua") {
+                "Variable"
             } else {
                 return None;
             };
             match parts.as_slice() {
                 [_, key] => Some((head, file.clone(), key.to_string(), None)),
-                [_, key, member] => Some((head, file.clone(), key.to_string(), Some(member.to_string()))),
+                [_, key, member] => Some((
+                    head,
+                    file.clone(),
+                    key.to_string(),
+                    Some(member.to_string()),
+                )),
                 _ => None,
             }
         };
         if let Value::Name { path, span } = value {
             if let Some((_, file, key, _)) = export_of(path) {
-                nouns.export_refs.push(ExportRef { file, key, line: line_of(self.source, span.0) });
+                nouns.export_refs.push(ExportRef {
+                    file,
+                    key,
+                    line: line_of(self.source, span.0),
+                });
             }
             return;
         }
@@ -872,7 +1000,11 @@ impl<'s> Annotator<'s> {
         };
         let mut current: Option<crate::types::FnSig> = match export_of(path) {
             Some((head, file, key, member)) => {
-                nouns.export_refs.push(ExportRef { file, key, line: line_of(self.source, span.0) });
+                nouns.export_refs.push(ExportRef {
+                    file,
+                    key,
+                    line: line_of(self.source, span.0),
+                });
                 let handle = self.surface.resolve_path(head);
                 match member {
                     None => handle,
@@ -921,7 +1053,10 @@ fn line_bounds(source: &str, start: usize, end: usize) -> (usize, usize) {
     let s = start.min(source.len());
     let e = end.min(source.len());
     let line_start = source[..s].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_end = source[e..].find('\n').map(|i| e + i + 1).unwrap_or(source.len());
+    let line_end = source[e..]
+        .find('\n')
+        .map(|i| e + i + 1)
+        .unwrap_or(source.len());
     (line_start, line_end)
 }
 
@@ -957,7 +1092,9 @@ mod tests {
         match &step.args[0] {
             Value::Verb { path, calls, .. } => {
                 assert_eq!(path, "UnitDef");
-                assert!(matches!(&calls[0].args[0], Value::String { value, semantic: Some(s), .. } if value == "armpw" && s == "unit_def_name"));
+                assert!(
+                    matches!(&calls[0].args[0], Value::String { value, semantic: Some(s), .. } if value == "armpw" && s == "unit_def_name")
+                );
             }
             other => panic!("expected the bound UnitDef, got {other:?}"),
         }
@@ -977,7 +1114,11 @@ mod tests {
             }
             other => panic!("expected the objective chain, got {other:?}"),
         }
-        assert_eq!(r.file.objective_refs.len(), 2, "both uses of the alias are references");
+        assert_eq!(
+            r.file.objective_refs.len(),
+            2,
+            "both uses of the alias are references"
+        );
     }
 
     #[test]
@@ -986,7 +1127,9 @@ mod tests {
         let r = recognize_file("t/triggers/a.lua", src).unwrap();
         assert!(findings(&r).is_empty(), "{:?}", findings(&r));
         let second = &r.file.groups[0].triggers[1].steps[0];
-        let Value::Verb { calls, .. } = &second.args[0] else { panic!() };
+        let Value::Verb { calls, .. } = &second.args[0] else {
+            panic!()
+        };
         assert!(matches!(&calls[0].args[1], Value::Number { value, .. } if *value == 4.0));
     }
 
@@ -995,7 +1138,12 @@ mod tests {
         let src = "local hub = Spawn(UnitDef(\"corlab\"), \"gaia\").At(0.4, 0.4)\nlocal boss = Claim(UnitDef(\"armcom\"), \"enemy\").Named(\"armada_commander\").OrSpawnAt(0.8, 0.8)\nreturn { hub = hub, boss = boss }\n";
         let r = recognize_file("t/units.lua", src).unwrap();
         assert!(findings(&r).is_empty(), "{:?}", findings(&r));
-        let exports: Vec<(&str, &str)> = r.file.unit_exports.iter().map(|e| (e.key.as_str(), e.name.as_str())).collect();
+        let exports: Vec<(&str, &str)> = r
+            .file
+            .unit_exports
+            .iter()
+            .map(|e| (e.key.as_str(), e.name.as_str()))
+            .collect();
         assert_eq!(exports, vec![("hub", "hub"), ("boss", "armada_commander")]);
         // the key names the unnamed handle, so it counts as a declared name
         assert!(r.file.unit_defs.contains(&"hub".to_string()));
@@ -1007,8 +1155,20 @@ mod tests {
         let src = "local Units = VFS.Include(\"modules/missions/t/units.lua\")\nlocal O = VFS.Include(\"modules/missions/t/objectives.lua\")\nWhen(Units.hub.IsSpotted(Team.Player)).Do(Combat.Protect(Units.hub))\nWhen(O.relieve.IsComplete()).Do(MatchFlow.Victory(Team.Player))\n";
         let r = recognize_file("t/triggers/a.lua", src).unwrap();
         assert!(findings(&r).is_empty(), "{:?}", findings(&r));
-        let refs: Vec<(&str, &str)> = r.file.export_refs.iter().map(|x| (x.file.rsplit('/').next().unwrap(), x.key.as_str())).collect();
-        assert_eq!(refs, vec![("units.lua", "hub"), ("units.lua", "hub"), ("objectives.lua", "relieve")]);
+        let refs: Vec<(&str, &str)> = r
+            .file
+            .export_refs
+            .iter()
+            .map(|x| (x.file.rsplit('/').next().unwrap(), x.key.as_str()))
+            .collect();
+        assert_eq!(
+            refs,
+            vec![
+                ("units.lua", "hub"),
+                ("units.lua", "hub"),
+                ("objectives.lua", "relieve")
+            ]
+        );
     }
 
     #[test]

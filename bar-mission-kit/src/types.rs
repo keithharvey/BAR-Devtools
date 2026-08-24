@@ -164,7 +164,11 @@ impl TypeSurface {
         path: &std::path::Path,
         policy: Policy,
     ) -> Option<std::path::PathBuf> {
-        let start = if path.is_dir() { Some(path) } else { path.parent() };
+        let start = if path.is_dir() {
+            Some(path)
+        } else {
+            path.parent()
+        };
         let mut ancestor = start;
         while let Some(dir) = ancestor {
             let candidate = dir.join("types");
@@ -303,7 +307,8 @@ impl TypeSurface {
                         match self.globals.get_mut(name) {
                             Some(Global::Object(existing)) => existing.extend(members),
                             _ => {
-                                self.globals.insert(name.to_string(), Global::Object(members));
+                                self.globals
+                                    .insert(name.to_string(), Global::Object(members));
                             }
                         }
                     }
@@ -349,7 +354,20 @@ impl TypeSurface {
     pub fn objective_heads(&self) -> BTreeMap<String, String> {
         let mut heads = BTreeMap::new();
         if self.classes.contains_key("MissionObjectiveDeclaration") {
-            heads.insert("Objective".to_string(), "MissionObjectiveDeclaration".to_string());
+            heads.insert(
+                "Objective".to_string(),
+                "MissionObjectiveDeclaration".to_string(),
+            );
+        }
+        heads
+    }
+
+    /// The variables definition-site grammar (variables.lua): Variable opens a
+    /// typed-slot chain there. Derived presence, hardcoded name — as objectives.
+    pub fn variable_heads(&self) -> BTreeMap<String, String> {
+        let mut heads = BTreeMap::new();
+        if self.classes.contains_key("MissionVariableChain") {
+            heads.insert("Variable".to_string(), "MissionVariableChain".to_string());
         }
         heads
     }
@@ -478,7 +496,9 @@ impl TypeSurface {
             }
             // Only a declared class is vocabulary; a field typed `integer` or
             // `string` is the shape of a handle, not something to name.
-            let Some(members) = self.classes.get(ty) else { continue };
+            let Some(members) = self.classes.get(ty) else {
+                continue;
+            };
             let name = format!("{prefix}.{field}");
             if members.is_empty() {
                 roles.nouns.push(name);
@@ -489,12 +509,15 @@ impl TypeSurface {
     }
     /// The semantic slug a parameter type carries, if any: a declared alias
     /// becomes snake_case with the Mission prefix dropped.
+    ///
+    /// A union (`MissionUnitGroup|MissionGroupRef`) carries the semantic of
+    /// its first alias member: a string at that position means that one.
     pub fn semantic_for(&self, type_name: &str) -> Option<String> {
-        if self.aliases.contains_key(type_name) {
-            Some(alias_slug(type_name))
-        } else {
-            None
-        }
+        split_top_level(type_name.trim_end_matches('?'), '|')
+            .into_iter()
+            .map(str::trim)
+            .find(|member| self.aliases.contains_key(*member))
+            .map(alias_slug)
     }
 
     /// semantic slug -> options, for aliases that are literal unions.
@@ -624,7 +647,10 @@ impl TypeSurface {
                             .map(|fields| fields.keys().map(|f| format!(".{f}")).collect())
                             .unwrap_or_default();
                         steps.sort();
-                        roles.statements.push(Statement { name: name.clone(), steps });
+                        roles.statements.push(Statement {
+                            name: name.clone(),
+                            steps,
+                        });
                     }
                     Some(ret) => self.walk_class(ret, name, &mut roles),
                     None => {}
@@ -774,7 +800,10 @@ pub fn policy_stages(source: &str) -> Vec<String> {
             while let Some(at) = source[from..].find(&needle) {
                 let name_start = from + at + needle.len();
                 if let Some(len) = source[name_start..].find('"') {
-                    found.push((from + at, format!("{kind} {}", &source[name_start..name_start + len])));
+                    found.push((
+                        from + at,
+                        format!("{kind} {}", &source[name_start..name_start + len]),
+                    ));
                 }
                 from = name_start;
             }
@@ -805,8 +834,11 @@ pub fn explore_modules(modules_root: &std::path::Path) -> Vec<ModuleInfo> {
     let Ok(entries) = std::fs::read_dir(modules_root) else {
         return out;
     };
-    let mut dirs: Vec<std::path::PathBuf> =
-        entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+    let mut dirs: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
     dirs.sort();
     for dir in dirs {
         let mission_sources = surface_sources(&dir.join("types"), "trigger");
@@ -1057,7 +1089,10 @@ Policies.Pipeline()
             vec!["Gate SharingDisabled", "Compute Rate", "Gate NotAllied"]
         );
         // Older trees spell the chain with colons; same stages.
-        assert_eq!(policy_stages(":Gate(\"A\", f):Compute(\"B\", g)"), vec!["Gate A", "Compute B"]);
+        assert_eq!(
+            policy_stages(":Gate(\"A\", f):Compute(\"B\", g)"),
+            vec!["Gate A", "Compute B"]
+        );
         assert!(policy_stages("local x = 1").is_empty());
     }
 
@@ -1066,7 +1101,10 @@ Policies.Pipeline()
         let surface = TypeSurface::builtin();
         let heads = surface.statement_heads();
         assert_eq!(heads.get("When").map(String::as_str), Some("TriggerChain"));
-        assert_eq!(heads.get("Spawn").map(String::as_str), Some("MissionSpawnChain"));
+        assert_eq!(
+            heads.get("Spawn").map(String::as_str),
+            Some("MissionSpawnChain")
+        );
         assert!(!heads.contains_key("Objective"));
         assert!(!heads.contains_key("Unit"));
 
@@ -1075,7 +1113,10 @@ Policies.Pipeline()
         // After arrived purely by being declared on TriggerChain in the game's
         // types — nothing here names it. That is the grammar being derived
         // rather than curated, which is the whole contract of this file.
-        assert_eq!(when_verbs, vec!["After", "Do", "Once", "When"]);
+        assert_eq!(
+            when_verbs,
+            vec!["After", "Do", "Every", "Once", "Times", "When"]
+        );
         let mut spawn_verbs = surface.chain_verbs("Spawn");
         spawn_verbs.sort();
         assert_eq!(spawn_verbs, vec!["At", "Grouped", "Named", "Neutral"]);
@@ -1088,20 +1129,36 @@ Policies.Pipeline()
             Some(Global::Fn(sig)) => sig.clone(),
             other => panic!("UnitDef should be a global fn, got {other:?}"),
         };
-        assert_eq!(surface.semantic_for(&unit_def.params[0].1).as_deref(), Some("unit_def_name"));
+        assert_eq!(
+            surface.semantic_for(&unit_def.params[0].1).as_deref(),
+            Some("unit_def_name")
+        );
 
-        let named = surface.step_sig("Spawn", "Named").expect("Named on the spawn chain");
-        assert_eq!(surface.semantic_for(&named.params[0].1).as_deref(), Some("unit_name"));
+        let named = surface
+            .step_sig("Spawn", "Named")
+            .expect("Named on the spawn chain");
+        assert_eq!(
+            surface.semantic_for(&named.params[0].1).as_deref(),
+            Some("unit_name")
+        );
 
         let spawn = surface.step_sig("Spawn", "Spawn").expect("the head itself");
-        assert_eq!(surface.semantic_for(&spawn.params[1].1).as_deref(), Some("team_role"));
+        assert_eq!(
+            surface.semantic_for(&spawn.params[1].1).as_deref(),
+            Some("team_role")
+        );
 
         // .After(30) is the case that made the rule worth stating: a bare
         // `number` gave the author a nameless box and no way to know whether
         // it wanted seconds or frames. The unit lives in the game's types,
         // not in a label here.
-        let after = surface.step_sig("When", "After").expect("After on the trigger chain");
-        assert_eq!(surface.semantic_for(&after.params[0].1).as_deref(), Some("seconds"));
+        let after = surface
+            .step_sig("When", "After")
+            .expect("After on the trigger chain");
+        assert_eq!(
+            surface.semantic_for(&after.params[0].1).as_deref(),
+            Some("seconds")
+        );
     }
 
     #[test]
@@ -1109,14 +1166,20 @@ Policies.Pipeline()
         let enums = TypeSurface::builtin().enums();
         assert_eq!(
             enums.get("team_role"),
-            Some(&vec!["player".to_string(), "enemy".to_string(), "gaia".to_string()])
+            Some(&vec![
+                "player".to_string(),
+                "enemy".to_string(),
+                "gaia".to_string()
+            ])
         );
     }
 
     #[test]
     fn dotted_paths_resolve_through_object_globals() {
         let surface = TypeSurface::builtin();
-        let has = surface.resolve_path("Team.Player.Has").expect("Team.Player.Has");
+        let has = surface
+            .resolve_path("Team.Player.Has")
+            .expect("Team.Player.Has");
         assert_eq!(has.params[1].0, "count");
         assert_eq!(has.ret.as_deref(), Some("MissionCondition"));
         assert!(surface.resolve_path("Team.Nobody.Has").is_none());
@@ -1155,8 +1218,14 @@ Policies.Pipeline()
 
         let surface = TypeSurface::load_near(&[dir.join("some_mission")]);
         assert!(surface.globals.contains_key("UnitDef"));
-        assert!(surface.aliases.contains_key("UnitDefName"), "composed from the second file");
-        assert!(!surface.globals.contains_key("Ban"), "unmarked scratch must stay out");
+        assert!(
+            surface.aliases.contains_key("UnitDefName"),
+            "composed from the second file"
+        );
+        assert!(
+            !surface.globals.contains_key("Ban"),
+            "unmarked scratch must stay out"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1198,7 +1267,10 @@ Policies.Pipeline()
 
         let preset = alpha.join("modes/thing.lua");
         let surface = TypeSurface::load_near_policy(&[preset], "mode");
-        assert!(surface.globals.contains_key("Mode"), "a preset must be given Mode");
+        assert!(
+            surface.globals.contains_key("Mode"),
+            "a preset must be given Mode"
+        );
         // and it must be ALPHA's Mode, not the one it happens to require.
         let heads = surface.statement_heads();
         assert_eq!(heads.get("Mode").map(String::as_str), Some("AlphaChain"));
@@ -1206,7 +1278,10 @@ Policies.Pipeline()
         // The trigger surface for the same module is untouched by any of this.
         let trigger = TypeSurface::load_near_policy(&[alpha.join("triggers/x.lua")], "trigger");
         assert!(trigger.globals.contains_key("Spawn"));
-        assert!(!trigger.globals.contains_key("Mode"), "a trigger file never sees Mode");
+        assert!(
+            !trigger.globals.contains_key("Mode"),
+            "a trigger file never sees Mode"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1234,8 +1309,14 @@ Policies.Pipeline()
         .unwrap();
 
         let surface = TypeSurface::load_near(&[dir.join("modules/alpha/some_mission/triggers")]);
-        assert!(surface.statement_heads().contains_key("When"), "own vocabulary");
-        assert!(surface.globals.contains_key("Beta"), "required module's vocabulary composes in");
+        assert!(
+            surface.statement_heads().contains_key("When"),
+            "own vocabulary"
+        );
+        assert!(
+            surface.globals.contains_key("Beta"),
+            "required module's vocabulary composes in"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

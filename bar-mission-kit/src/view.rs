@@ -221,9 +221,11 @@ pub fn unknown_unit_defs(ast: &MissionAst, domains: &Domains) -> Vec<crate::mode
         domains.units.iter().map(|u| u.value.as_str()).collect();
     fn walk<'a>(value: &'a Value, out: &mut Vec<(&'a str, crate::model::Span)>) {
         match value {
-            Value::String { value, span, semantic: Some(s) } if s == "unit_def_name" => {
-                out.push((value, *span))
-            }
+            Value::String {
+                value,
+                span,
+                semantic: Some(s),
+            } if s == "unit_def_name" => out.push((value, *span)),
             Value::Verb { calls, .. } => {
                 for c in calls {
                     for a in &c.args {
@@ -270,14 +272,39 @@ pub fn unknown_unit_defs(ast: &MissionAst, domains: &Domains) -> Vec<crate::mode
 pub fn render(ast: &MissionAst, domains: &Domains, scope: &Scope) -> ViewArtifact {
     let surface: Surface = serde_json::from_value(ast.surface.clone()).unwrap_or_default();
     let live = std::cell::RefCell::new(Vec::new());
-    let triggers = xmlize(&dioxus_ssr::render_element(body(ast, &surface, domains, true, &live, Some(Panel::Triggers))));
-    let units = xmlize(&dioxus_ssr::render_element(body(ast, &surface, domains, true, &live, Some(Panel::Roster))));
-    let objectives_board = xmlize(&dioxus_ssr::render_element(body(ast, &surface, domains, true, &live, Some(Panel::Objectives))));
-    let billboard = xmlize(&dioxus_ssr::render_element(body(ast, &surface, domains, false, &live, None)));
+    let triggers = xmlize(&dioxus_ssr::render_element(body(
+        ast,
+        &surface,
+        domains,
+        true,
+        &live,
+        Some(Panel::Triggers),
+    )));
+    let units = xmlize(&dioxus_ssr::render_element(body(
+        ast,
+        &surface,
+        domains,
+        true,
+        &live,
+        Some(Panel::Roster),
+    )));
+    let objectives_board = xmlize(&dioxus_ssr::render_element(body(
+        ast,
+        &surface,
+        domains,
+        true,
+        &live,
+        Some(Panel::Objectives),
+    )));
+    let billboard = xmlize(&dioxus_ssr::render_element(body(
+        ast, &surface, domains, false, &live, None,
+    )));
     let nouns = xmlize(&dioxus_ssr::render_element(nouns_body(ast, domains, &live)));
 
     let sorted_set = |iter: &mut dyn Iterator<Item = String>| -> Vec<String> {
-        iter.collect::<std::collections::BTreeSet<_>>().into_iter().collect()
+        iter.collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
     };
     let objectives = sorted_set(&mut ast.files.iter().flat_map(|f| f.objectives.iter().cloned()));
     let unit_names = sorted_set(&mut ast.files.iter().flat_map(|f| f.unit_defs.iter().cloned()));
@@ -301,25 +328,43 @@ pub fn render(ast: &MissionAst, domains: &Domains, scope: &Scope) -> ViewArtifac
             .map(|g| g.triggers.len())
             .sum()
     };
-    let trigger_files = ast.files.iter().filter(|f| panel_of(&f.path) == Panel::Triggers).count();
+    let trigger_files = ast
+        .files
+        .iter()
+        .filter(|f| panel_of(&f.path) == Panel::Triggers)
+        .count();
     let spawn_count = chains_in(Panel::Roster);
     let trigger_count = chains_in(Panel::Triggers);
     let declaration_count = chains_in(Panel::Objectives);
     let form = [
-        format!("<div class=\"me-view\" data-view=\"mission\">{}{}</div>",
+        format!(
+            "<div class=\"me-view\" data-view=\"mission\">{}{}</div>",
             crumb(scope),
-            summary(trigger_count, spawn_count, objectives_len, unit_names_len, surface.modules.len())),
+            summary(
+                trigger_count,
+                spawn_count,
+                objectives_len,
+                unit_names_len,
+                surface.modules.len()
+            )
+        ),
         section(
             "mission",
             "Triggers",
-            &format!("{trigger_count} in {trigger_files} file{}", plural(trigger_files)),
+            &format!(
+                "{trigger_count} in {trigger_files} file{}",
+                plural(trigger_files)
+            ),
             true,
             &triggers,
         ),
         section(
             "objectives",
             "Objectives",
-            &format!("{declaration_count} declaration{}", plural(declaration_count)),
+            &format!(
+                "{declaration_count} declaration{}",
+                plural(declaration_count)
+            ),
             true,
             &objectives_board,
         ),
@@ -344,7 +389,11 @@ pub fn render(ast: &MissionAst, domains: &Domains, scope: &Scope) -> ViewArtifac
         section(
             "graph",
             "Graph",
-            &format!("{} module{}", surface.modules.len(), plural(surface.modules.len())),
+            &format!(
+                "{} module{}",
+                surface.modules.len(),
+                plural(surface.modules.len())
+            ),
             true,
             &modules_graph(&surface.modules),
         ),
@@ -416,13 +465,14 @@ fn step_owner<'a>(step: &Step, surface: &'a Surface) -> Option<&'a str> {
                 .modules
                 .iter()
                 .find(|m| {
-                    m.statements
-                        .iter()
-                        .any(|st| {
-                            // Statement steps are published dotted (".At").
-                            st.name == step.verb
-                                || st.steps.iter().any(|s| s.trim_start_matches('.') == step.verb)
-                        })
+                    m.statements.iter().any(|st| {
+                        // Statement steps are published dotted (".At").
+                        st.name == step.verb
+                            || st
+                                .steps
+                                .iter()
+                                .any(|s| s.trim_start_matches('.') == step.verb)
+                    })
                 })
                 .map(|m| m.name.as_str())
         })
@@ -455,7 +505,12 @@ fn modules_graph(modules: &[ModuleInfo]) -> String {
         seen.push(name);
         let d = requires
             .get(name)
-            .map(|deps| deps.iter().map(|d| depth(d, requires, seen) + 1).max().unwrap_or(0))
+            .map(|deps| {
+                deps.iter()
+                    .map(|d| depth(d, requires, seen) + 1)
+                    .max()
+                    .unwrap_or(0)
+            })
             .unwrap_or(0);
         seen.pop();
         d
@@ -590,7 +645,11 @@ fn modules_graph(modules: &[ModuleInfo]) -> String {
                     (k, *n)
                 })
                 .collect();
-            keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal).then(a.1.cmp(b.1)));
+            keyed.sort_by(|a, b| {
+                a.0.partial_cmp(&b.0)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then(a.1.cmp(b.1))
+            });
             layers[d] = keyed.into_iter().map(|(_, n)| n).collect();
         }
         let c = crossings(&layers);
@@ -704,7 +763,9 @@ fn modules_body(modules: &[ModuleInfo]) -> String {
                 statement.name
             ));
             for step in &statement.steps {
-                out.push_str(&format!("<span class=\"me-chip me-chip-build\">{step}</span>"));
+                out.push_str(&format!(
+                    "<span class=\"me-chip me-chip-build\">{step}</span>"
+                ));
             }
             out.push_str("</div>");
         }
@@ -718,7 +779,9 @@ fn modules_body(modules: &[ModuleInfo]) -> String {
                 policy.file
             ));
             for stage in &policy.stages {
-                out.push_str(&format!("<span class=\"me-chip me-chip-build\">{stage}</span>"));
+                out.push_str(&format!(
+                    "<span class=\"me-chip me-chip-build\">{stage}</span>"
+                ));
             }
             out.push_str("</div>");
         }
@@ -754,9 +817,21 @@ fn modules_body(modules: &[ModuleInfo]) -> String {
 /// against both terminals' dark surfaces), a 2px surface gap between
 /// segments, rounded ends, and identity carried by the dots — labels and
 /// values stay in text ink, never in a series color.
-fn summary(triggers: usize, spawns: usize, objectives: usize, named: usize, modules: usize) -> String {
+fn summary(
+    triggers: usize,
+    spawns: usize,
+    objectives: usize,
+    named: usize,
+    modules: usize,
+) -> String {
     let total = triggers + spawns;
-    let pct = |n: usize| if total == 0 { 0.0 } else { (n as f64) * 100.0 / (total as f64) };
+    let pct = |n: usize| {
+        if total == 0 {
+            0.0
+        } else {
+            (n as f64) * 100.0 / (total as f64)
+        }
+    };
     let tile = |slot: &str, label: &str, value: usize, section: &str| {
         let dot = if slot.is_empty() {
             String::new()
@@ -791,7 +866,11 @@ fn summary(triggers: usize, spawns: usize, objectives: usize, named: usize, modu
 }
 
 fn plural(n: usize) -> &'static str {
-    if n == 1 { "" } else { "s" }
+    if n == 1 {
+        ""
+    } else {
+        "s"
+    }
 }
 
 /// The navigable path: `missions ▸ <current>`. The root is a button when
@@ -816,7 +895,11 @@ fn crumb(scope: &Scope) -> String {
     if navigable {
         out.push_str("<div class=\"me-mission-list collapsed\" data-mission-list=\"1\">");
         for mission in &scope.missions {
-            let current = if Some(mission) == scope.mission.as_ref() { " me-mission-current" } else { "" };
+            let current = if Some(mission) == scope.mission.as_ref() {
+                " me-mission-current"
+            } else {
+                ""
+            };
             out.push_str(&format!(
                 "<button class=\"me-mission-row{current}\" data-select-mission=\"{mission}\">{mission}</button>"
             ));
@@ -891,7 +974,11 @@ fn nouns_body(
         let live = live.borrow();
         let mut seen: Vec<String> = Vec::new();
         let mut out: Vec<LiveProbe> = Vec::new();
-        for probe in live.iter().filter(|p| p.kind == "unit_dead").chain(live.iter().filter(|p| p.kind == "unit_spotted")) {
+        for probe in live
+            .iter()
+            .filter(|p| p.kind == "unit_dead")
+            .chain(live.iter().filter(|p| p.kind == "unit_spotted"))
+        {
             if let Some(name) = &probe.unit_name {
                 if !seen.contains(name) {
                     seen.push(name.clone());
@@ -1054,10 +1141,17 @@ fn trigger_card(trigger: &Trigger, ctx: &Ctx) -> Element {
     // Ghost ordinal is the open-in-editor handle; the file header already
     // names the file.
     let ordinal = trigger.id.rsplit(':').next().unwrap_or_default();
-    let title = trigger.label.clone().unwrap_or_else(|| format!("#{ordinal}"));
+    let title = trigger
+        .label
+        .clone()
+        .unwrap_or_else(|| format!("#{ordinal}"));
     let addable = ctx.editable
         && !(ctx.surface.conditions.is_empty() && ctx.surface.effects.is_empty())
-        && trigger.steps.first().map(|s| s.verb == "When").unwrap_or(false);
+        && trigger
+            .steps
+            .first()
+            .map(|s| s.verb == "When")
+            .unwrap_or(false);
     // Whole-card progress. The engine's own "has this fired" is the honest
     // signal — a once-trigger stays fired after its condition goes false, so
     // shading off a live condition would flicker back to unfired. This rides
@@ -1319,24 +1413,27 @@ fn probe_for(phrase_key: &str, value: &Value) -> Option<LiveProbe> {
             let unit = find_semantic_leaf(value, "unit_def_name");
             let count = find_semantic_leaf(value, "count");
             match (unit, count) {
-                (Some(Value::String { value: unit, .. }), Some(Value::Number { value: need, .. })) => {
-                    Some(LiveProbe {
-                        key: format!("unit:{unit}:{}", fmt_num(*need)),
-                        kind: "unit_count".into(),
-                        unit_def: Some(unit.clone()),
-                        need: Some(*need),
-                        objective: None,
-                        unit_name: None,
-                        pack: None,
-                        trigger: None,
-                    })
-                }
+                (
+                    Some(Value::String { value: unit, .. }),
+                    Some(Value::Number { value: need, .. }),
+                ) => Some(LiveProbe {
+                    key: format!("unit:{unit}:{}", fmt_num(*need)),
+                    kind: "unit_count".into(),
+                    unit_def: Some(unit.clone()),
+                    need: Some(*need),
+                    objective: None,
+                    unit_name: None,
+                    pack: None,
+                    trigger: None,
+                }),
                 _ => None,
             }
         }
         "Objective.IsComplete" | "Objective.Complete" => {
             match find_semantic_leaf(value, "objective_name") {
-                Some(Value::String { value: objective, .. }) => Some(LiveProbe {
+                Some(Value::String {
+                    value: objective, ..
+                }) => Some(LiveProbe {
                     key: format!("obj:{objective}"),
                     kind: "objective".into(),
                     unit_def: None,
@@ -1511,8 +1608,12 @@ fn find_name_ref(value: &Value) -> Option<&str> {
 
 fn find_semantic_leaf<'a>(value: &'a Value, semantic: &str) -> Option<&'a Value> {
     match value {
-        Value::Number { semantic: Some(s), .. } if s == semantic => Some(value),
-        Value::String { semantic: Some(s), .. } if s == semantic => Some(value),
+        Value::Number {
+            semantic: Some(s), ..
+        } if s == semantic => Some(value),
+        Value::String {
+            semantic: Some(s), ..
+        } if s == semantic => Some(value),
         Value::Verb { calls, .. } => calls
             .iter()
             .flat_map(|c| c.args.iter())
@@ -1574,7 +1675,11 @@ fn control_for(value: &Value, ctx: &Ctx) -> Option<Element> {
         return None;
     }
     match value {
-        Value::String { value, span, semantic } => match semantic.as_deref() {
+        Value::String {
+            value,
+            span,
+            semantic,
+        } => match semantic.as_deref() {
             // A literal-union parameter type renders as a picker of exactly
             // its literals — the enum came from the LuaCATS alias.
             Some(semantic) if ctx.surface.enums.contains_key(semantic) => {
@@ -1737,12 +1842,30 @@ fn modals(surface: &Surface) -> Modals {
     };
 
     Modals {
-        add_step: Modal { title: "Add to this trigger".into(), rows: add_step },
-        add_statement: Modal { title: "New statement".into(), rows: add_statement },
-        add_spawn: Modal { title: "Add a spawn".into(), rows: add_spawn },
-        add_declaration: Modal { title: "Declare an objective".into(), rows: add_declaration },
-        swap_conditions: Modal { title: "Swap condition".into(), rows: swap(&surface.conditions) },
-        swap_effects: Modal { title: "Swap effect".into(), rows: swap(&surface.effects) },
+        add_step: Modal {
+            title: "Add to this trigger".into(),
+            rows: add_step,
+        },
+        add_statement: Modal {
+            title: "New statement".into(),
+            rows: add_statement,
+        },
+        add_spawn: Modal {
+            title: "Add a spawn".into(),
+            rows: add_spawn,
+        },
+        add_declaration: Modal {
+            title: "Declare an objective".into(),
+            rows: add_declaration,
+        },
+        swap_conditions: Modal {
+            title: "Swap condition".into(),
+            rows: swap(&surface.conditions),
+        },
+        swap_effects: Modal {
+            title: "Swap effect".into(),
+            rows: swap(&surface.effects),
+        },
     }
 }
 
@@ -1814,10 +1937,26 @@ When(Objective("build_pawns").IsComplete())
         let labels: std::collections::BTreeMap<String, String> =
             serde_json::from_value(surface["labels"].clone()).unwrap_or_default();
         for (role, paths) in [
-            ("conditions", vec!["MatchFlow.Started", "Team.Player.Has", "Objective.IsComplete",
-                                "Unit.IsDestroyed", "Unit.IsSpotted"]),
-            ("effects", vec!["Objective.Complete", "Transfer.Units", "Combat.Protect",
-                             "MatchFlow.Victory", "MatchFlow.Defeat"]),
+            (
+                "conditions",
+                vec![
+                    "MatchFlow.Started",
+                    "Team.Player.Has",
+                    "Objective.IsComplete",
+                    "Unit.IsDestroyed",
+                    "Unit.IsSpotted",
+                ],
+            ),
+            (
+                "effects",
+                vec![
+                    "Objective.Complete",
+                    "Transfer.Units",
+                    "Combat.Protect",
+                    "MatchFlow.Victory",
+                    "MatchFlow.Defeat",
+                ],
+            ),
         ] {
             let mut entries: Vec<serde_json::Value> = paths
                 .iter()
@@ -1851,8 +1990,14 @@ When(Objective("build_pawns").IsComplete())
     fn domains() -> Domains {
         Domains {
             units: vec![
-                DomainOption { value: "armck".into(), label: "Construction Kbot  [armck]".into() },
-                DomainOption { value: "armpw".into(), label: "Pawn  [armpw]".into() },
+                DomainOption {
+                    value: "armck".into(),
+                    label: "Construction Kbot  [armck]".into(),
+                },
+                DomainOption {
+                    value: "armpw".into(),
+                    label: "Pawn  [armpw]".into(),
+                },
             ],
         }
     }
@@ -1889,7 +2034,11 @@ When(Objective("build_pawns").IsComplete())
             assert!(j < bytes.len(), "unterminated tag <{name}");
             let self_closed = bytes[j - 1] == b'/';
             if closing {
-                assert_eq!(stack.pop().as_deref(), Some(name.as_str()), "mismatched </{name}>");
+                assert_eq!(
+                    stack.pop().as_deref(),
+                    Some(name.as_str()),
+                    "mismatched </{name}>"
+                );
             } else if !self_closed {
                 stack.push(name);
             }
@@ -1906,7 +2055,11 @@ When(Objective("build_pawns").IsComplete())
         assert!(view.form.contains("data-quote=\"0\""), "{}", view.form);
         assert!(view.form.contains("data-start="));
         assert!(view.form.contains("data-hash="));
-        assert!(view.form.contains("value=\"armpw\" selected=\"true\""), "{}", view.form);
+        assert!(
+            view.form.contains("value=\"armpw\" selected=\"true\""),
+            "{}",
+            view.form
+        );
         assert!(view.form.contains("Construction Kbot"));
         assert!(view.form.contains("Player has "));
         assert_eq!(view.generation, 7);
@@ -1917,8 +2070,14 @@ When(Objective("build_pawns").IsComplete())
     fn the_graph_reads_two_ways_and_defaults_to_flat() {
         let view = render(&ast(), &domains(), &Scope::default());
         for mode in ["flat", "graph"] {
-            assert!(view.form.contains(&format!("data-graph-mode=\"{mode}\"")), "no {mode} button");
-            assert!(view.form.contains(&format!("data-graph-pass=\"{mode}\"")), "no {mode} pass");
+            assert!(
+                view.form.contains(&format!("data-graph-mode=\"{mode}\"")),
+                "no {mode} button"
+            );
+            assert!(
+                view.form.contains(&format!("data-graph-pass=\"{mode}\"")),
+                "no {mode} pass"
+            );
         }
         // Flat is what opens; the diagram and the source are second readings.
         assert!(view.form.contains("me-graph-graph collapsed"));
@@ -1937,7 +2096,10 @@ When(Objective("build_pawns").IsComplete())
         let domains = |names: &[&str]| Domains {
             units: names
                 .iter()
-                .map(|n| DomainOption { value: n.to_string(), label: n.to_string() })
+                .map(|n| DomainOption {
+                    value: n.to_string(),
+                    label: n.to_string(),
+                })
                 .collect(),
         };
         // No published set is no authority: a headless check must not invent
@@ -1976,8 +2138,20 @@ When(Objective("build_pawns").IsComplete())
         for caps in regex_lite_nodes(&view.form) {
             placed.push(caps);
         }
-        let y = |name: &str| placed.iter().find(|(_, _, n)| n == name).map(|(_, y, _)| *y).unwrap();
-        let x = |name: &str| placed.iter().find(|(x, _, n)| n == name).map(|(x2, _, _)| *x2).unwrap();
+        let y = |name: &str| {
+            placed
+                .iter()
+                .find(|(_, _, n)| n == name)
+                .map(|(_, y, _)| *y)
+                .unwrap()
+        };
+        let x = |name: &str| {
+            placed
+                .iter()
+                .find(|(x, _, n)| n == name)
+                .map(|(x2, _, _)| *x2)
+                .unwrap()
+        };
         assert_eq!(x("alpha"), x("beta"), "roots share a column");
         assert_eq!(x("aa"), x("bb"), "dependents share a column");
         // aa needs beta and bb needs alpha, so their vertical order must mirror
@@ -1992,10 +2166,21 @@ When(Objective("build_pawns").IsComplete())
     /// The three numbers a node carries in the emitted diagram.
     fn regex_lite_nodes(form: &str) -> Vec<(usize, usize, String)> {
         let mut out = Vec::new();
-        for chunk in form.split("<g class=\"me-svg-node\" data-select-module=\"").skip(1) {
+        for chunk in form
+            .split("<g class=\"me-svg-node\" data-select-module=\"")
+            .skip(1)
+        {
             let name = chunk.split('"').next().unwrap_or("").to_string();
-            let x = chunk.split("<rect x=\"").nth(1).and_then(|c| c.split('"').next()).and_then(|v| v.parse().ok());
-            let y = chunk.split("y=\"").nth(1).and_then(|c| c.split('"').next()).and_then(|v| v.parse().ok());
+            let x = chunk
+                .split("<rect x=\"")
+                .nth(1)
+                .and_then(|c| c.split('"').next())
+                .and_then(|v| v.parse().ok());
+            let y = chunk
+                .split("y=\"")
+                .nth(1)
+                .and_then(|c| c.split('"').next())
+                .and_then(|v| v.parse().ok());
             if let (Some(x), Some(y)) = (x, y) {
                 out.push((x, y, name));
             }
@@ -2027,15 +2212,25 @@ When(Objective("build_pawns").IsComplete())
         });
         let view = render(&with_modules, &domains(), &Scope::default());
         assert!(view.form.contains("data-owner=\"demo\""), "{}", view.form);
-        assert!(!view.form.contains("data-owner=\"\""), "unattributed step: {}", view.form);
+        assert!(
+            !view.form.contains("data-owner=\"\""),
+            "unattributed step: {}",
+            view.form
+        );
     }
 
     #[test]
     fn the_form_is_sectioned_with_a_noun_explorer() {
         let view = render(&ast(), &domains(), &Scope::default());
         for key in ["mission", "nouns"] {
-            assert!(view.form.contains(&format!("data-section=\"{key}\"")), "missing section {key}");
-            assert!(view.form.contains(&format!("data-toggle=\"{key}\"")), "missing toggle {key}");
+            assert!(
+                view.form.contains(&format!("data-section=\"{key}\"")),
+                "missing section {key}"
+            );
+            assert!(
+                view.form.contains(&format!("data-toggle=\"{key}\"")),
+                "missing toggle {key}"
+            );
         }
         assert!(!view.form.contains("data-section=\"surface\""));
         assert!(!view.form.contains(">TRIGGERS<"));
@@ -2050,12 +2245,25 @@ When(Objective("build_pawns").IsComplete())
     #[test]
     fn live_probes_are_slotted_and_deduped() {
         let view = render(&ast(), &domains(), &Scope::default());
-        assert!(view.form.contains("data-live=\"unit:armpw:3\""), "{}", view.form);
+        assert!(
+            view.form.contains("data-live=\"unit:armpw:3\""),
+            "{}",
+            view.form
+        );
         assert!(view.form.contains("data-live=\"obj:build_pawns\""));
         // Chip probes only: card-level trigger probes are their own channel
         // and are counted by every_trigger_card_can_shade_when_it_fires.
-        let chips: Vec<_> = view.live.iter().filter(|p| p.kind != "trigger_fired").collect();
-        assert_eq!(chips.len(), 2, "{:?}", chips.iter().map(|p| &p.key).collect::<Vec<_>>());
+        let chips: Vec<_> = view
+            .live
+            .iter()
+            .filter(|p| p.kind != "trigger_fired")
+            .collect();
+        assert_eq!(
+            chips.len(),
+            2,
+            "{:?}",
+            chips.iter().map(|p| &p.key).collect::<Vec<_>>()
+        );
         let unit = view.live.iter().find(|p| p.kind == "unit_count").unwrap();
         assert_eq!(unit.unit_def.as_deref(), Some("armpw"));
         assert_eq!(unit.need, Some(3.0));
@@ -2071,27 +2279,55 @@ When(Objective("build_pawns").IsComplete())
         assert!(!view.billboard.contains("<button"));
         assert!(view.billboard.contains("me-verb"));
         // dioxus entity-escapes text; RmlUi decodes &quot; back to " on display
-        assert!(view.billboard.contains("&quot;build_pawns&quot;"), "{}", view.billboard);
+        assert!(
+            view.billboard.contains("&quot;build_pawns&quot;"),
+            "{}",
+            view.billboard
+        );
     }
 
     #[test]
     fn an_unknown_unit_still_renders_as_a_selectable_option() {
         let view = render(&ast(), &Domains::default(), &Scope::default());
-        assert!(view.form.contains("value=\"armpw\" selected=\"true\""), "{}", view.form);
+        assert!(
+            view.form.contains("value=\"armpw\" selected=\"true\""),
+            "{}",
+            view.form
+        );
     }
 
     #[test]
     fn the_vocabulary_rides_the_artifact_for_editor_completion() {
         let view = render(&ast(), &domains(), &Scope::default());
         let templates = |entries: &[SurfaceEntry]| {
-            entries.iter().map(|e| e.template.clone()).collect::<Vec<_>>().join("\n")
+            entries
+                .iter()
+                .map(|e| e.template.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
         };
         let conditions = templates(&view.vocabulary.conditions);
-        for verb in ["MatchFlow.Started()", "Team.Player.Has", ".IsComplete()", ".IsDestroyed()", ".IsSpotted("] {
-            assert!(conditions.contains(verb), "missing condition template {verb}");
+        for verb in [
+            "MatchFlow.Started()",
+            "Team.Player.Has",
+            ".IsComplete()",
+            ".IsDestroyed()",
+            ".IsSpotted(",
+        ] {
+            assert!(
+                conditions.contains(verb),
+                "missing condition template {verb}"
+            );
         }
         let effects = templates(&view.vocabulary.effects);
-        for verb in [".Complete()", "Transfer.Units(", "Combat.Protect(", ".Until(", "MatchFlow.Victory(", "MatchFlow.Defeat("] {
+        for verb in [
+            ".Complete()",
+            "Transfer.Units(",
+            "Combat.Protect(",
+            ".Until(",
+            "MatchFlow.Victory(",
+            "MatchFlow.Defeat(",
+        ] {
             assert!(effects.contains(verb), "missing effect template {verb}");
         }
         assert_eq!(view.vocabulary.objectives, vec!["build_pawns".to_string()]);
@@ -2137,10 +2373,15 @@ When(Waves.BossDefeated(Scavengers.Horde))
 
     #[test]
     fn a_delayed_trigger_says_what_unit_the_delay_is_in() {
-        let src = "When(MatchFlow.Started())\n\t.After(30)\n\t.Do(MatchFlow.Victory(Team.Player))\n";
+        let src =
+            "When(MatchFlow.Started())\n\t.After(30)\n\t.Do(MatchFlow.Victory(Team.Player))\n";
         let rec = crate::recognizer::recognize_file("triggers/waves.lua", src).unwrap();
-        let ast =
-            MissionAst { version: 1, generation: 1, files: vec![rec.file], surface: test_surface() };
+        let ast = MissionAst {
+            version: 1,
+            generation: 1,
+            files: vec![rec.file],
+            surface: test_surface(),
+        };
         let view = render(&ast, &domains(), &Scope::default());
         assert_wellformed(&view.form);
         // The number alone was the bug: an author reading AFTER 30 has no way
@@ -2153,7 +2394,11 @@ When(Waves.BossDefeated(Scavengers.Horde))
     fn the_combat_vocabulary_renders_as_sentences() {
         let view = render(&cm8_ast(), &domains(), &Scope::default());
         assert_wellformed(&view.form);
-        assert!(view.form.contains("the mission has started"), "{}", view.form);
+        assert!(
+            view.form.contains("the mission has started"),
+            "{}",
+            view.form
+        );
         assert!(view.form.contains("share group "));
         assert!(view.form.contains("protect "));
         assert!(view.form.contains(" until "));
@@ -2173,7 +2418,12 @@ When(Waves.BossDefeated(Scavengers.Horde))
         let mut surface: serde_json::Value = test_surface();
         surface["enums"] =
             serde_json::to_value(crate::types::TypeSurface::builtin().enums()).unwrap();
-        let ast = MissionAst { version: 1, generation: 1, files: vec![rec.file], surface };
+        let ast = MissionAst {
+            version: 1,
+            generation: 1,
+            files: vec![rec.file],
+            surface,
+        };
         let view = render(&ast, &domains(), &Scope::default());
         assert_wellformed(&view.form);
         assert!(view.form.contains("me-select-enum"), "{}", view.form);
@@ -2183,7 +2433,11 @@ When(Waves.BossDefeated(Scavengers.Horde))
         assert!(view.form.contains("value=\"corlab\" selected=\"true\""));
         // The roster takes spawn chains, not trigger vocabulary.
         assert!(view.form.contains("data-add=\"spawn\""), "{}", view.form);
-        assert!(!view.form.contains("data-add=\"statement\""), "{}", view.form);
+        assert!(
+            !view.form.contains("data-add=\"statement\""),
+            "{}",
+            view.form
+        );
         assert!(view.form.contains("+ add spawn"));
         // Removing a spawn is the same control a trigger card carries.
         assert!(view.form.contains("data-op=\"remove\""), "{}", view.form);
@@ -2217,18 +2471,38 @@ When(Waves.BossDefeated(Scavengers.Horde))
     fn the_board_gets_its_own_section_and_palette() {
         let board = "Objective(\"first\")\n\t.Title(\"The First\")\n\t.CompletedWhen(Unit(\"hub\").IsSpotted(Team.Player))\n";
         let rec = crate::recognizer::recognize_file("objectives.lua", board).unwrap();
-        let ast = MissionAst { version: 1, generation: 1, files: vec![rec.file], surface: test_surface() };
+        let ast = MissionAst {
+            version: 1,
+            generation: 1,
+            files: vec![rec.file],
+            surface: test_surface(),
+        };
         let view = render(&ast, &domains(), &Scope::default());
         assert_wellformed(&view.form);
         // Its own section, counted as declarations — not as triggers.
-        assert!(view.form.contains("data-section=\"objectives\""), "{}", view.form);
+        assert!(
+            view.form.contains("data-section=\"objectives\""),
+            "{}",
+            view.form
+        );
         assert!(view.form.contains("1 declaration"), "{}", view.form);
         assert!(view.form.contains("0 in 0 file"), "{}", view.form);
         // Its own palette: declarations, not trigger vocabulary or spawns.
-        assert!(view.form.contains("data-add=\"declaration\""), "{}", view.form);
+        assert!(
+            view.form.contains("data-add=\"declaration\""),
+            "{}",
+            view.form
+        );
         assert!(view.form.contains("+ declare objective"));
-        assert!(!view.form.contains("data-add=\"statement\""), "{}", view.form);
-        assert!(view.modals.add_declaration.rows.len() > 1, "curated declaration templates ride the surface");
+        assert!(
+            !view.form.contains("data-add=\"statement\""),
+            "{}",
+            view.form
+        );
+        assert!(
+            view.modals.add_declaration.rows.len() > 1,
+            "curated declaration templates ride the surface"
+        );
         // The declared id feeds the same vocabulary triggers complete against.
         assert_eq!(view.vocabulary.objectives, vec!["first".to_string()]);
     }
@@ -2262,38 +2536,72 @@ When(Waves.BossDefeated(Scavengers.Horde))
         // The pack is written `Scavengers.Skirmish`; the director publishes
         // under `scavengers.skirmish`, and the probe has to bridge the two —
         // a mission never learns a flavor's rulesparam prefix.
-        let cleared = view.live.iter().find(|p| p.kind == "waves_cleared").unwrap();
+        let cleared = view
+            .live
+            .iter()
+            .find(|p| p.kind == "waves_cleared")
+            .unwrap();
         assert_eq!(cleared.pack.as_deref(), Some("scavengers.skirmish"));
         assert_eq!(cleared.need, Some(3.0));
         assert_eq!(cleared.key, "waves_cleared:scavengers.skirmish:3");
 
         // The count is optional in the DSL and means one.
-        let boss = view.live.iter().find(|p| p.kind == "waves_boss_defeated").unwrap();
+        let boss = view
+            .live
+            .iter()
+            .find(|p| p.kind == "waves_boss_defeated")
+            .unwrap();
         assert_eq!(boss.pack.as_deref(), Some("scavengers.horde"));
         assert_eq!(boss.need, Some(1.0));
 
         // And the chips are slotted into the form the game fills in.
-        assert!(view.form.contains("data-live=\"waves_cleared:scavengers.skirmish:3\""), "{}", view.form);
+        assert!(
+            view.form
+                .contains("data-live=\"waves_cleared:scavengers.skirmish:3\""),
+            "{}",
+            view.form
+        );
     }
 
     #[test]
     fn every_trigger_card_can_shade_when_it_fires() {
         let view = render(&cm8_ast(), &domains(), &Scope::default());
-        let fired: Vec<_> = view.live.iter().filter(|p| p.kind == "trigger_fired").collect();
+        let fired: Vec<_> = view
+            .live
+            .iter()
+            .filter(|p| p.kind == "trigger_fired")
+            .collect();
         assert_eq!(fired.len(), 3, "one probe per trigger card");
 
         // The id is the runtime's own identity minus the mission prefix the
         // game adds back, so the bridge can compose it without the kit ever
         // knowing which mission it is editing.
-        let first = fired.iter().find(|p| p.trigger.as_deref() == Some("triggers/outpost.lua:1"));
-        assert!(first.is_some(), "{:?}", fired.iter().map(|p| &p.trigger).collect::<Vec<_>>());
+        let first = fired
+            .iter()
+            .find(|p| p.trigger.as_deref() == Some("triggers/outpost.lua:1"));
+        assert!(
+            first.is_some(),
+            "{:?}",
+            fired.iter().map(|p| &p.trigger).collect::<Vec<_>>()
+        );
 
         // It rides its own attribute: a data-live element gets TEXT written
         // into it, which would erase the card. The name deliberately does not
         // contain "data-live" either — the billboard asserts on that substring.
-        assert!(view.form.contains("data-fired=\"trigger:triggers/outpost.lua:1\""), "{}", view.form);
-        assert!(!view.form.contains("data-live=\"trigger:"), "cards must not use the text channel");
-        assert!(!view.billboard.contains("data-fired"), "the billboard carries no live wiring");
+        assert!(
+            view.form
+                .contains("data-fired=\"trigger:triggers/outpost.lua:1\""),
+            "{}",
+            view.form
+        );
+        assert!(
+            !view.form.contains("data-live=\"trigger:"),
+            "cards must not use the text channel"
+        );
+        assert!(
+            !view.billboard.contains("data-fired"),
+            "the billboard carries no live wiring"
+        );
         assert_wellformed(&view.form);
     }
 
@@ -2309,9 +2617,21 @@ When(Waves.BossDefeated(Scavengers.Horde))
         let view = render(&ast, &domains(), &Scope::default());
         assert_wellformed(&view.form);
 
-        assert!(view.form.contains("send waves at the player"), "{}", view.form);
-        assert!(view.form.contains("a wave has been cleared"), "{}", view.form);
-        assert!(view.form.contains("the boss has been defeated"), "{}", view.form);
+        assert!(
+            view.form.contains("send waves at the player"),
+            "{}",
+            view.form
+        );
+        assert!(
+            view.form.contains("a wave has been cleared"),
+            "{}",
+            view.form
+        );
+        assert!(
+            view.form.contains("the boss has been defeated"),
+            "{}",
+            view.form
+        );
 
         // Raw call notation is the fallback for shapes no phrase covers, so
         // its presence here means a phrase key stopped matching. That is how
@@ -2326,15 +2646,24 @@ When(Waves.BossDefeated(Scavengers.Horde))
     fn modal_rows_carry_composed_edits() {
         let view = render(&ast(), &domains(), &Scope::default());
         let step = &view.modals.add_step;
-        assert!(step.rows.iter().any(|r| r.kind == "andwhen" && r.new_text.starts_with("\t.When(")));
-        assert!(step.rows.iter().any(|r| r.kind == "effect" && r.new_text.starts_with("\t.Do(")));
+        assert!(step
+            .rows
+            .iter()
+            .any(|r| r.kind == "andwhen" && r.new_text.starts_with("\t.When(")));
+        assert!(step
+            .rows
+            .iter()
+            .any(|r| r.kind == "effect" && r.new_text.starts_with("\t.Do(")));
         let statement = &view.modals.add_statement;
         assert!(statement.rows.iter().any(|r| r.kind == "trigger"
             && r.new_text.starts_with("\nWhen(")
             && r.new_text.contains(".Do(")));
-        assert!(view.modals.swap_conditions.rows.iter().all(|r| r.kind == "swap"
-            && r.new_text.starts_with('(')
-            && r.new_text.ends_with(')')));
+        assert!(view
+            .modals
+            .swap_conditions
+            .rows
+            .iter()
+            .all(|r| r.kind == "swap" && r.new_text.starts_with('(') && r.new_text.ends_with(')')));
     }
 
     #[test]
@@ -2345,12 +2674,22 @@ When(Team.Player.Has(UnitDef("armpw"), 3))
 	.Do(MatchFlow.Victory(Team.Player))
 "#;
         let rec = crate::recognizer::recognize_file("triggers/chained.lua", chained).unwrap();
-        let ast = MissionAst { version: 1, generation: 1, files: vec![rec.file], surface: test_surface() };
+        let ast = MissionAst {
+            version: 1,
+            generation: 1,
+            files: vec![rec.file],
+            surface: test_surface(),
+        };
         let view = render(&ast, &domains(), &Scope::default());
         // Exactly three removes: the trigger card, the Do line, and the
         // chained When. A fourth would mean the HEAD grew one — removing the
         // opener would leave the next line starting with a dot.
-        assert_eq!(view.form.matches("data-op=\"remove\"").count(), 3, "{}", view.form);
+        assert_eq!(
+            view.form.matches("data-op=\"remove\"").count(),
+            3,
+            "{}",
+            view.form
+        );
     }
 
     #[test]
@@ -2369,7 +2708,10 @@ When(Team.Player.Has(UnitDef("armpw"), 3))
         let pinned = render(
             &ast(),
             &domains(),
-            &Scope { mission: Some("solo".into()), missions: vec![] },
+            &Scope {
+                mission: Some("solo".into()),
+                missions: vec![],
+            },
         );
         assert!(!pinned.form.contains("data-nav=\"missions\""));
         assert!(!pinned.form.contains("data-select-mission"));
@@ -2384,6 +2726,9 @@ When(Team.Player.Has(UnitDef("armpw"), 3))
     fn void_elements_self_close() {
         assert_eq!(xmlize("<input value=\"a>b\">"), "<input value=\"a>b\"/>");
         assert_eq!(xmlize("<img src=\"x.png\"/>"), "<img src=\"x.png\"/>");
-        assert_eq!(xmlize("<div><input type=\"text\"></div>"), "<div><input type=\"text\"/></div>");
+        assert_eq!(
+            xmlize("<div><input type=\"text\"></div>"),
+            "<div><input type=\"text\"/></div>"
+        );
     }
 }

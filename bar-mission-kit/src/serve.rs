@@ -90,7 +90,11 @@ impl EditJournal {
             }
             // newest first: a file that returned to an earlier state has two
             // edges out of it, and the recent one is the live history
-            let step = entries.iter().rev().find(|e| e.before == at).ok_or_else(|| stale(file))?;
+            let step = entries
+                .iter()
+                .rev()
+                .find(|e| e.before == at)
+                .ok_or_else(|| stale(file))?;
             if step.start == start && step.end == end {
                 // The same leaf, rewritten: this intent replaces all of it, so
                 // it redirects onto the new extent and the later write wins.
@@ -117,7 +121,10 @@ impl EditJournal {
 /// file moved underneath.
 impl EditJournal {
     fn undo_intent(&self, file: &str, current: &str) -> Result<EditIntent, String> {
-        let entries = self.by_file.get(file).ok_or_else(|| nothing_to_undo(file))?;
+        let entries = self
+            .by_file
+            .get(file)
+            .ok_or_else(|| nothing_to_undo(file))?;
         let last = entries.back().ok_or_else(|| nothing_to_undo(file))?;
         if last.after != current {
             // Something else wrote the file after we did. Undoing our write
@@ -313,7 +320,9 @@ impl Server {
             .filter(|name| valid_mission_name(name))
             .filter(|name| {
                 let pattern = format!("{}/**/triggers/*.lua", root.join(name).display());
-                glob::glob(&pattern).map(|mut g| g.next().is_some()).unwrap_or(false)
+                glob::glob(&pattern)
+                    .map(|mut g| g.next().is_some())
+                    .unwrap_or(false)
             })
             .collect();
         names.sort();
@@ -375,7 +384,10 @@ impl Server {
         if findings.is_empty() {
             eprintln!("[gen {}] AST regenerated", self.generation);
         } else {
-            eprintln!("[gen {}] AST regenerated with findings:\n{message}", self.generation);
+            eprintln!(
+                "[gen {}] AST regenerated with findings:\n{message}",
+                self.generation
+            );
         }
     }
 
@@ -488,9 +500,16 @@ impl Server {
         std::fs::remove_file(&path).ok();
         let requested: Option<String> = serde_json::from_str::<serde_json::Value>(&text)
             .ok()
-            .and_then(|v| v.get("file").and_then(|f| f.as_str()).map(|s| s.to_string()));
+            .and_then(|v| {
+                v.get("file")
+                    .and_then(|f| f.as_str())
+                    .map(|s| s.to_string())
+            });
         let Some(file) = requested.or_else(|| self.journal.most_recent().map(String::from)) else {
-            self.write_status(false, "nothing left to undo — this serve has not written anything yet");
+            self.write_status(
+                false,
+                "nothing left to undo — this serve has not written anything yet",
+            );
             return;
         };
         let result = (|| {
@@ -510,7 +529,10 @@ impl Server {
             Ok(()) => {
                 self.generation += 1;
                 let left = self.journal.depth(&file);
-                self.write_status(true, &format!("undid the last edit to {file} ({left} left)"));
+                self.write_status(
+                    true,
+                    &format!("undid the last edit to {file} ({left} left)"),
+                );
                 eprintln!("undid the last edit to {file}");
             }
             Err(message) => {
@@ -556,7 +578,12 @@ impl Server {
             "line": request.line,
         });
         std::fs::write(self.editor_dir.join("open_target.json"), target.to_string()).ok();
-        eprintln!("open target [{}]: {}:{}", self.open_seq, file.display(), request.line);
+        eprintln!(
+            "open target [{}]: {}:{}",
+            self.open_seq,
+            file.display(),
+            request.line
+        );
         if !self.editor_cmd.is_empty() {
             let cmd = self
                 .editor_cmd
@@ -578,15 +605,22 @@ enum Chunk {
 /// and do not sort lexicographically in submission order: "1000_2" < "900_1".
 /// Compare digit runs numerically so the drain order is the write order.
 fn natural_key(path: &Path) -> Vec<Chunk> {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let mut chunks = Vec::new();
     let mut rest = name.as_str();
     while !rest.is_empty() {
         let digit = rest.starts_with(|c: char| c.is_ascii_digit());
-        let split = rest.find(|c: char| c.is_ascii_digit() != digit).unwrap_or(rest.len());
+        let split = rest
+            .find(|c: char| c.is_ascii_digit() != digit)
+            .unwrap_or(rest.len());
         let (head, tail) = rest.split_at(split);
         chunks.push(if digit {
-            head.parse().map(Chunk::Number).unwrap_or_else(|_| Chunk::Text(head.into()))
+            head.parse()
+                .map(Chunk::Number)
+                .unwrap_or_else(|_| Chunk::Text(head.into()))
         } else {
             Chunk::Text(head.into())
         });
@@ -596,7 +630,10 @@ fn natural_key(path: &Path) -> Vec<Chunk> {
 }
 
 fn valid_mission_name(name: &str) -> bool {
-    !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 /// Resolve a mission-relative path defensively (no escaping the tree).
@@ -670,7 +707,9 @@ pub fn apply_edit_journaled(
         recognizer::FileKind::ModePreset => "mode",
         // The board's grammar rides the trigger policy surface: the same
         // metas declare Objective and the declaration class.
-        recognizer::FileKind::Statements | recognizer::FileKind::Objectives => "trigger",
+        recognizer::FileKind::Statements
+        | recognizer::FileKind::Objectives
+        | recognizer::FileKind::Variables => "trigger",
     };
     let surface = crate::types::TypeSurface::load_near_policy(&[path.clone()], policy);
     let recognized = recognizer::recognize_file_with(&intent.file, &edited, &surface)
@@ -682,7 +721,9 @@ pub fn apply_edit_journaled(
             .map(|f| f.message.clone())
             .collect::<Vec<_>>()
             .join("; ");
-        return Err(format!("edit rejected — result leaves the mission subset: {msgs}"));
+        return Err(format!(
+            "edit rejected — result leaves the mission subset: {msgs}"
+        ));
     }
 
     let after = recognizer::fnv1a(edited.as_bytes());
@@ -764,7 +805,10 @@ mod tests {
     }
 
     fn tmpdir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("bar-mission-kit-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "bar-mission-kit-test-{name}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -780,8 +824,14 @@ mod tests {
         vec![
             ("lf", WIN.to_string()),
             ("crlf", crlf.clone()),
-            ("crlf-no-final-newline", crlf.trim_end_matches("\r\n").to_string()),
-            ("lf-no-final-newline", WIN.trim_end_matches('\n').to_string()),
+            (
+                "crlf-no-final-newline",
+                crlf.trim_end_matches("\r\n").to_string(),
+            ),
+            (
+                "lf-no-final-newline",
+                WIN.trim_end_matches('\n').to_string(),
+            ),
         ]
     }
 
@@ -815,7 +865,11 @@ mod tests {
             apply_edit(&dir, &intent).unwrap();
             let edited = edited_text(&dir);
             assert_eq!(edited[..at], source[..at], "{name}: bytes before the span");
-            assert_eq!(edited[at + 1..], source[at + 1..], "{name}: bytes after the span");
+            assert_eq!(
+                edited[at + 1..],
+                source[at + 1..],
+                "{name}: bytes after the span"
+            );
 
             // an insertion at EOF, exactly as the add-step modal posts it
             seed(&dir, &source);
@@ -832,9 +886,16 @@ mod tests {
             assert_eq!(edited[..eof], source, "{name}: bytes before the insertion");
             if source.contains("\r\n") {
                 let bare = edited.matches('\n').count() - edited.matches("\r\n").count();
-                assert_eq!(bare, 0, "{name}: CRLF document gained an LF line: {edited:?}");
+                assert_eq!(
+                    bare, 0,
+                    "{name}: CRLF document gained an LF line: {edited:?}"
+                );
             } else {
-                assert_eq!(edited.matches('\r').count(), 0, "{name}: LF document gained a CR");
+                assert_eq!(
+                    edited.matches('\r').count(),
+                    0,
+                    "{name}: LF document gained a CR"
+                );
             }
         }
     }
@@ -922,7 +983,10 @@ mod tests {
         // Precondition: the trigger surface really does NOT know Mode, so a
         // pass below means the policy was chosen, not that everything is known.
         let trigger = crate::types::TypeSurface::load_near_policy(&[dir.clone()], "trigger");
-        assert!(!trigger.globals.contains_key("Mode"), "test tree is not exercising the bug");
+        assert!(
+            !trigger.globals.contains_key("Mode"),
+            "test tree is not exercising the bug"
+        );
 
         let source = std::fs::read_to_string(&preset).unwrap();
         let from = source.find("before").unwrap();
@@ -938,7 +1002,11 @@ mod tests {
     }
 
     /// Drive one edit through the same path serve does, keeping the journal.
-    fn edit_with(dir: &Path, journal: &mut EditJournal, intent: &EditIntent) -> Result<Span, String> {
+    fn edit_with(
+        dir: &Path,
+        journal: &mut EditJournal,
+        intent: &EditIntent,
+    ) -> Result<Span, String> {
         apply_edit_journaled(dir, intent, journal)
     }
 
@@ -952,16 +1020,30 @@ mod tests {
         let at = before.find('3').unwrap();
 
         let mut journal = EditJournal::default();
-        edit_with(&dir, &mut journal, &EditIntent {
-            file: file.into(), start: at, end: at + 1, new_text: "5".into(), base_hash: None,
-        })
+        edit_with(
+            &dir,
+            &mut journal,
+            &EditIntent {
+                file: file.into(),
+                start: at,
+                end: at + 1,
+                new_text: "5".into(),
+                base_hash: None,
+            },
+        )
         .unwrap();
-        assert!(std::fs::read_to_string(&path).unwrap().contains("armpw\"), 5)"));
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("armpw\"), 5)"));
 
         let current = recognizer::fnv1a(std::fs::read_to_string(&path).unwrap().as_bytes());
         let inverse = journal.undo_intent(file, &current).unwrap();
         edit_with(&dir, &mut journal, &inverse).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), before, "undo must restore the bytes exactly");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "undo must restore the bytes exactly"
+        );
     }
 
     #[test]
@@ -975,14 +1057,25 @@ mod tests {
         let at = std::fs::read_to_string(&path).unwrap().find('3').unwrap();
 
         let mut journal = EditJournal::default();
-        edit_with(&dir, &mut journal, &EditIntent {
-            file: file.into(), start: at, end: at + 1, new_text: "5".into(), base_hash: None,
-        })
+        edit_with(
+            &dir,
+            &mut journal,
+            &EditIntent {
+                file: file.into(),
+                start: at,
+                end: at + 1,
+                new_text: "5".into(),
+                base_hash: None,
+            },
+        )
         .unwrap();
 
         std::fs::write(&path, WIN.replace('3', "9")).unwrap();
         let current = recognizer::fnv1a(std::fs::read_to_string(&path).unwrap().as_bytes());
-        assert!(journal.undo_intent(file, &current).is_err(), "undo must not clobber a foreign write");
+        assert!(
+            journal.undo_intent(file, &current).is_err(),
+            "undo must not clobber a foreign write"
+        );
     }
 
     #[test]
@@ -994,7 +1087,11 @@ mod tests {
         let file = "hello/triggers/win.lua";
         let mut journal = EditJournal::default();
         let intent = EditIntent {
-            file: file.into(), start: 0, end: 0, new_text: "-- hi\n".into(), base_hash: None,
+            file: file.into(),
+            start: 0,
+            end: 0,
+            new_text: "-- hi\n".into(),
+            base_hash: None,
         };
         edit_with(&dir, &mut journal, &intent).unwrap();
 
@@ -1012,7 +1109,9 @@ mod tests {
         let dir = tmpdir("undo-empty");
         setup(&dir);
         let journal = EditJournal::default();
-        let err = journal.undo_intent("hello/triggers/win.lua", "deadbeef").unwrap_err();
+        let err = journal
+            .undo_intent("hello/triggers/win.lua", "deadbeef")
+            .unwrap_err();
         assert!(err.contains("nothing left to undo"), "{err}");
     }
 
@@ -1045,7 +1144,8 @@ mod tests {
             file: "hello/triggers/win.lua".into(),
             start: at,
             end: at,
-            new_text: "\nWhen(Objective(\"x\").IsComplete())\n\t.Do(Objective(\"y\").Complete())\n".into(),
+            new_text: "\nWhen(Objective(\"x\").IsComplete())\n\t.Do(Objective(\"y\").Complete())\n"
+                .into(),
             base_hash: Some(crate::recognizer::fnv1a(source.as_bytes())),
         };
         apply_edit(&dir, &intent).unwrap();
@@ -1098,7 +1198,10 @@ mod tests {
         server.consume_edits();
         let edited = std::fs::read_to_string(dir.join(file)).unwrap();
         assert!(edited.contains(", 55)"), "count edit lost: {edited:?}");
-        assert!(edited.contains("Objective(\"win\")"), "name edit lost: {edited:?}");
+        assert!(
+            edited.contains("Objective(\"win\")"),
+            "name edit lost: {edited:?}"
+        );
     }
 
     /// The safety property: an edit whose OWN region moved underneath it is
@@ -1138,8 +1241,14 @@ mod tests {
 
         server.consume_edits();
         let edited = std::fs::read_to_string(dir.join(file)).unwrap();
-        assert!(edited.contains("armck\"), 9)"), "first edit lost: {edited:?}");
-        assert!(!edited.contains("55"), "stale edit wrote into a moved region: {edited:?}");
+        assert!(
+            edited.contains("armck\"), 9)"),
+            "first edit lost: {edited:?}"
+        );
+        assert!(
+            !edited.contains("55"),
+            "stale edit wrote into a moved region: {edited:?}"
+        );
         let status = std::fs::read_to_string(editor.join("status.json")).unwrap();
         assert!(status.contains("overlaps"), "{status}");
     }
@@ -1209,12 +1318,29 @@ mod tests {
 
     #[test]
     fn intents_drain_in_numeric_submission_order() {
-        let names = ["1000_2.json", "900_1.json", "900_10.json", "900_9.json", "http_5_2.json"];
+        let names = [
+            "1000_2.json",
+            "900_1.json",
+            "900_10.json",
+            "900_9.json",
+            "http_5_2.json",
+        ];
         let mut paths: Vec<PathBuf> = names.iter().map(PathBuf::from).collect();
         paths.sort_by_key(|p| natural_key(p));
-        let sorted: Vec<String> =
-            paths.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
-        assert_eq!(sorted, ["http_5_2.json", "900_1.json", "900_9.json", "900_10.json", "1000_2.json"]);
+        let sorted: Vec<String> = paths
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            sorted,
+            [
+                "http_5_2.json",
+                "900_1.json",
+                "900_9.json",
+                "900_10.json",
+                "1000_2.json"
+            ]
+        );
     }
 
     #[test]
@@ -1229,13 +1355,20 @@ mod tests {
         )
         .unwrap();
         server.consume_open_request();
-        let target: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(editor.join("open_target.json")).unwrap())
-                .unwrap();
+        let target: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(editor.join("open_target.json")).unwrap(),
+        )
+        .unwrap();
         assert_eq!(target["seq"], 1);
         assert_eq!(target["line"], 2);
-        assert!(target["file"].as_str().unwrap().ends_with("hello/triggers/win.lua"));
-        assert!(target["file"].as_str().unwrap().starts_with('/'), "absolute path for window routing");
+        assert!(target["file"]
+            .as_str()
+            .unwrap()
+            .ends_with("hello/triggers/win.lua"));
+        assert!(
+            target["file"].as_str().unwrap().starts_with('/'),
+            "absolute path for window routing"
+        );
         assert!(!editor.join("open_request.json").exists());
     }
 
@@ -1245,13 +1378,22 @@ mod tests {
         std::fs::create_dir_all(root.join("alpha/triggers")).unwrap();
         std::fs::create_dir_all(root.join("beta/triggers")).unwrap();
         let editor = tmpdir("follow-editor");
-        let mut server = Server::new(root.clone(), editor.clone(), String::new(), Some(root.clone()));
+        let mut server = Server::new(
+            root.clone(),
+            editor.clone(),
+            String::new(),
+            Some(root.clone()),
+        );
 
         std::fs::write(editor.join("active_mission.json"), "{\"name\":\"beta\"}").unwrap();
         server.follow_active();
         assert_eq!(server.missions_dir, root.join("beta"));
 
-        std::fs::write(editor.join("active_mission.json"), "{\"name\":\"../../etc\"}").unwrap();
+        std::fs::write(
+            editor.join("active_mission.json"),
+            "{\"name\":\"../../etc\"}",
+        )
+        .unwrap();
         server.follow_active();
         assert_eq!(server.missions_dir, root.join("beta"));
 
@@ -1267,8 +1409,12 @@ mod tests {
         std::fs::create_dir_all(root.join("alpha/triggers")).unwrap();
         std::fs::create_dir_all(root.join("beta/triggers")).unwrap();
         let editor = tmpdir("select-editor");
-        let mut server =
-            Server::new(root.join("alpha"), editor.clone(), String::new(), Some(root.clone()));
+        let mut server = Server::new(
+            root.join("alpha"),
+            editor.clone(),
+            String::new(),
+            Some(root.clone()),
+        );
 
         std::fs::write(editor.join("active_mission.json"), "{\"name\":\"beta\"}").unwrap();
         server.follow_active();
@@ -1283,11 +1429,19 @@ mod tests {
         server.follow_active();
         assert_eq!(server.missions_dir, root.join("alpha"));
 
-        std::fs::write(editor.join("active_mission.json"), "{\"name\":\"beta\",\"t\":2}").unwrap();
+        std::fs::write(
+            editor.join("active_mission.json"),
+            "{\"name\":\"beta\",\"t\":2}",
+        )
+        .unwrap();
         server.follow_active();
         assert_eq!(server.missions_dir, root.join("beta"));
 
-        std::fs::write(editor.join("select_mission.json"), "{\"name\":\"../../etc\"}").unwrap();
+        std::fs::write(
+            editor.join("select_mission.json"),
+            "{\"name\":\"../../etc\"}",
+        )
+        .unwrap();
         server.consume_select_mission();
         assert_eq!(server.missions_dir, root.join("beta"));
 
@@ -1306,11 +1460,23 @@ mod tests {
         std::fs::create_dir_all(root.join("lib")).unwrap();
         std::fs::create_dir_all(root.join("beta/deep/triggers")).unwrap();
         std::fs::write(root.join("beta/deep/triggers/t.lua"), "x").unwrap();
-        let server =
-            Server::new(root.join("alpha"), tmpdir("list-editor"), String::new(), Some(root.clone()));
-        assert_eq!(server.list_missions(), vec!["alpha".to_string(), "beta".to_string()]);
+        let server = Server::new(
+            root.join("alpha"),
+            tmpdir("list-editor"),
+            String::new(),
+            Some(root.clone()),
+        );
+        assert_eq!(
+            server.list_missions(),
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
 
-        let pinned = Server::new(root.join("alpha"), tmpdir("list-editor2"), String::new(), None);
+        let pinned = Server::new(
+            root.join("alpha"),
+            tmpdir("list-editor2"),
+            String::new(),
+            None,
+        );
         assert!(pinned.list_missions().is_empty());
     }
 

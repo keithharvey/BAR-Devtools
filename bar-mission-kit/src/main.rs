@@ -36,9 +36,7 @@ enum Command {
         out: Option<PathBuf>,
     },
     /// Validate mission files; print findings, exit nonzero on any.
-    Check {
-        paths: Vec<PathBuf>,
-    },
+    Check { paths: Vec<PathBuf> },
     /// Run the editor service: watch missions, regenerate the AST artifact,
     /// apply UI edit intents, handle open-in-editor requests.
     Serve {
@@ -101,7 +99,9 @@ fn collect_lua_files(paths: &[PathBuf]) -> Vec<PathBuf> {
                     // modules/modes is a MODULE (mode infrastructure); its own
                     // files aren't presets. Presets live in <module>/modes/.
                     fn dir_name(p: Option<&std::path::Path>) -> &str {
-                        p.and_then(|d| d.file_name()).and_then(|n| n.to_str()).unwrap_or("")
+                        p.and_then(|d| d.file_name())
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
                     }
                     let parent = entry.parent();
                     if dir_name(parent) == "modes"
@@ -152,14 +152,34 @@ fn palette(
         .unwrap_or_default();
     let derived = types.roles();
     for (role, paths) in [
-        ("conditions", if modules.is_empty() { derived.conditions.clone() }
-            else { modules.iter().flat_map(|m| m.conditions.iter().cloned()).collect() }),
-        ("effects", if modules.is_empty() { derived.effects.clone() }
-            else { modules.iter().flat_map(|m| m.effects.iter().cloned()).collect() }),
+        (
+            "conditions",
+            if modules.is_empty() {
+                derived.conditions.clone()
+            } else {
+                modules
+                    .iter()
+                    .flat_map(|m| m.conditions.iter().cloned())
+                    .collect()
+            },
+        ),
+        (
+            "effects",
+            if modules.is_empty() {
+                derived.effects.clone()
+            } else {
+                modules
+                    .iter()
+                    .flat_map(|m| m.effects.iter().cloned())
+                    .collect()
+            },
+        ),
     ] {
         let mut entries: Vec<serde_json::Value> = Vec::new();
         for path in paths {
-            let Some(template) = types.template_for(&path) else { continue };
+            let Some(template) = types.template_for(&path) else {
+                continue;
+            };
             entries.push(serde_json::json!({
                 "label": labels.get(&path).cloned().unwrap_or_else(|| humanize(&path)),
                 "template": template,
@@ -181,7 +201,11 @@ fn humanize(path: &str) -> String {
             if ch.is_uppercase() && j > 0 {
                 words.push(std::mem::take(&mut current));
             }
-            current.push(if i == 0 && j == 0 { ch } else { ch.to_ascii_lowercase() });
+            current.push(if i == 0 && j == 0 {
+                ch
+            } else {
+                ch.to_ascii_lowercase()
+            });
         }
         words.push(current);
     }
@@ -197,8 +221,10 @@ pub fn collect_ast(paths: &[PathBuf], generation: u64) -> (model::MissionAst, Ve
     // PER FILE — each file answers to its own module's published surface
     // (nearest marked types/ dir), so a sharing mode preset and a mission
     // trigger file check against different vocabularies in one walk.
-    let mut surfaces: std::collections::HashMap<(PathBuf, &'static str), std::rc::Rc<types::TypeSurface>> =
-        std::collections::HashMap::new();
+    let mut surfaces: std::collections::HashMap<
+        (PathBuf, &'static str),
+        std::rc::Rc<types::TypeSurface>,
+    > = std::collections::HashMap::new();
     let mut surface_for = |file: &PathBuf| -> std::rc::Rc<types::TypeSurface> {
         // A preset and a trigger file can live in one module and are written in
         // different vocabularies, so the policy is part of the cache key. Keyed
@@ -208,7 +234,9 @@ pub fn collect_ast(paths: &[PathBuf], generation: u64) -> (model::MissionAst, Ve
             recognizer::FileKind::ModePreset => "mode",
             // The board's grammar rides the trigger policy surface: the same
             // metas declare Objective and the declaration class.
-            recognizer::FileKind::Statements | recognizer::FileKind::Objectives => "trigger",
+            recognizer::FileKind::Statements
+            | recognizer::FileKind::Objectives
+            | recognizer::FileKind::Variables => "trigger",
         };
         let key = types::TypeSurface::types_dir_near_policy(file, policy)
             .unwrap_or_else(|| PathBuf::from("<builtin>"));
@@ -225,7 +253,12 @@ pub fn collect_ast(paths: &[PathBuf], generation: u64) -> (model::MissionAst, Ve
 
     let mut surface: serde_json::Value =
         serde_json::from_str(MISSION_SURFACE).expect("valid surface overlay");
-    let mut ast = model::MissionAst { version: 1, generation, files: Vec::new(), surface: serde_json::Value::Null };
+    let mut ast = model::MissionAst {
+        version: 1,
+        generation,
+        files: Vec::new(),
+        surface: serde_json::Value::Null,
+    };
     let mut findings = Vec::new();
     let mut enums: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for file in &files {
@@ -260,7 +293,10 @@ pub fn collect_ast(paths: &[PathBuf], generation: u64) -> (model::MissionAst, Ve
     if let Some(overlay) = surface.as_object_mut() {
         // Derived editor enums ride the artifact so every terminal renders
         // literal-union parameters as pickers.
-        overlay.insert("enums".into(), serde_json::to_value(enums).expect("serializable enums"));
+        overlay.insert(
+            "enums".into(),
+            serde_json::to_value(enums).expect("serializable enums"),
+        );
         // The module explorer: every module publishing a marked surface,
         // discovered the same way the grammar is.
         if let Some(root) = files
@@ -305,8 +341,10 @@ fn cross_check_names(files: &[model::FileAst]) -> Vec<model::Finding> {
     // fails these loads, so check mode reports them.
     findings.extend(cross_check_exports(files));
     if files.iter().any(|f| recognizer::is_objectives(&f.path)) {
-        let objective_defs: std::collections::HashSet<&str> =
-            files.iter().flat_map(|f| f.objective_defs.iter().map(String::as_str)).collect();
+        let objective_defs: std::collections::HashSet<&str> = files
+            .iter()
+            .flat_map(|f| f.objective_defs.iter().map(String::as_str))
+            .collect();
         for file in files {
             for r in &file.objective_refs {
                 if !objective_defs.contains(r.name.as_str()) {
@@ -332,8 +370,18 @@ fn cross_check_names(files: &[model::FileAst]) -> Vec<model::Finding> {
 /// since the walk's paths are mission-relative and the include's are not.
 fn cross_check_exports(files: &[model::FileAst]) -> Vec<model::Finding> {
     fn tail(path: &str) -> String {
-        let parts: Vec<&str> = path.split(|c| c == '/' || c == '\\').filter(|p| !p.is_empty()).collect();
-        parts.iter().rev().take(2).rev().cloned().collect::<Vec<_>>().join("/")
+        let parts: Vec<&str> = path
+            .split(|c| c == '/' || c == '\\')
+            .filter(|p| !p.is_empty())
+            .collect();
+        parts
+            .iter()
+            .rev()
+            .take(2)
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("/")
     }
     let mut findings = Vec::new();
     for file in files {
@@ -346,6 +394,8 @@ fn cross_check_exports(files: &[model::FileAst]) -> Vec<model::Finding> {
                 .unit_exports
                 .iter()
                 .chain(target.objective_exports.iter())
+                .chain(target.group_exports.iter())
+                .chain(target.variable_exports.iter())
                 .map(|e| e.key.as_str())
                 .collect();
             if !keys.contains(&r.key.as_str()) {
@@ -362,10 +412,14 @@ fn cross_check_exports(files: &[model::FileAst]) -> Vec<model::Finding> {
 }
 
 fn cross_check_units(files: &[model::FileAst]) -> Vec<model::Finding> {
-    let unit_defs: std::collections::HashSet<&str> =
-        files.iter().flat_map(|f| f.unit_defs.iter().map(String::as_str)).collect();
-    let group_defs: std::collections::HashSet<&str> =
-        files.iter().flat_map(|f| f.group_defs.iter().map(String::as_str)).collect();
+    let unit_defs: std::collections::HashSet<&str> = files
+        .iter()
+        .flat_map(|f| f.unit_defs.iter().map(String::as_str))
+        .collect();
+    let group_defs: std::collections::HashSet<&str> = files
+        .iter()
+        .flat_map(|f| f.group_defs.iter().map(String::as_str))
+        .collect();
     let mut findings = Vec::new();
     for file in files {
         for r in &file.unit_refs {
@@ -424,7 +478,13 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         }
-        Command::Serve { missions_dir, missions_root, editor_dir, editor_cmd, listen } => {
+        Command::Serve {
+            missions_dir,
+            missions_root,
+            editor_dir,
+            editor_cmd,
+            listen,
+        } => {
             let Some(initial) = missions_dir.or_else(|| missions_root.clone()) else {
                 eprintln!("serve needs a missions dir or --missions-root");
                 return ExitCode::FAILURE;
@@ -438,7 +498,9 @@ fn main() -> ExitCode {
                 Ok(port) => announce_port(&editor_dir, port),
                 Err(http::BindError::Other) => return ExitCode::FAILURE,
                 Err(http::BindError::InUse) => {
-                    let ours = editor_dir.canonicalize().unwrap_or_else(|_| editor_dir.clone());
+                    let ours = editor_dir
+                        .canonicalize()
+                        .unwrap_or_else(|_| editor_dir.clone());
                     let theirs = http::probe_editor_dir(&listen)
                         .map(std::path::PathBuf::from)
                         .map(|p| p.canonicalize().unwrap_or(p));
@@ -549,8 +611,16 @@ Objective("find_the_enclave")
         assert_eq!(steps, vec!["Objective", "Title", "CompletedWhen", "When"]);
         // The head declares; the nested gate references. That split is the
         // whole cross-check.
-        assert_eq!(rec.file.objective_defs, vec!["relieve_the_outpost", "find_the_enclave"]);
-        let refs: Vec<&str> = rec.file.objective_refs.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            rec.file.objective_defs,
+            vec!["relieve_the_outpost", "find_the_enclave"]
+        );
+        let refs: Vec<&str> = rec
+            .file
+            .objective_refs
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect();
         assert_eq!(refs, vec!["relieve_the_outpost"]);
     }
 
@@ -569,7 +639,9 @@ Objective("find_the_enclave")
         )
         .unwrap();
         assert!(
-            rec.findings.iter().any(|f| f.message.contains("unknown chain verb 'Completed'")),
+            rec.findings
+                .iter()
+                .any(|f| f.message.contains("unknown chain verb 'Completed'")),
             "findings: {:?}",
             rec.findings
         );
@@ -596,7 +668,9 @@ Objective("find_the_enclave")
         let messages: Vec<&str> = findings.iter().map(|f| f.message.as_str()).collect();
         assert_eq!(messages.len(), 2, "{messages:?}");
         assert!(messages.iter().any(|m| m.starts_with("tower: m/units.lua")));
-        assert!(messages.iter().any(|m| m.starts_with("ghost: m/objectives.lua")));
+        assert!(messages
+            .iter()
+            .any(|m| m.starts_with("ghost: m/objectives.lua")));
     }
 
     #[test]
@@ -639,8 +713,7 @@ When(Region("north").EnteredBy(Team.Player, { count = 5 }))
         match &t.steps[1].args[0] {
             Value::Verb { path, calls, .. } => {
                 assert_eq!(path, "Wave.Define");
-                let names: Vec<Option<&str>> =
-                    calls.iter().map(|c| c.name.as_deref()).collect();
+                let names: Vec<Option<&str>> = calls.iter().map(|c| c.name.as_deref()).collect();
                 assert_eq!(names, vec![None, Some("Route"), Some("Spawn")]);
             }
             other => panic!("expected verb, got {other:?}"),
@@ -707,7 +780,13 @@ When(C()).Do(E())
             other => panic!("expected Has verb, got {other:?}"),
         }
         let at = t1.insert_effect_at;
-        assert!(WIN[..at].trim_end().ends_with(".Do(Objective(\"build_pawns\").Complete())"), "{}", &WIN[..at]);
+        assert!(
+            WIN[..at]
+                .trim_end()
+                .ends_with(".Do(Objective(\"build_pawns\").Complete())"),
+            "{}",
+            &WIN[..at]
+        );
     }
 
     #[test]
@@ -721,16 +800,25 @@ When(C()).Do(E())
     fn a_leftover_register_is_named_explicitly() {
         let src = "When(C()).Do(E()).Register()\n";
         let rec = crate::recognizer::recognize_file("triggers/r.lua", src).unwrap();
-        assert!(rec.findings.iter().any(|f| f.message.contains("Register is gone")));
+        assert!(rec
+            .findings
+            .iter()
+            .any(|f| f.message.contains("Register is gone")));
     }
 
     #[test]
     fn an_undeclared_statement_verb_is_a_finding() {
         let src = "Spwan(UnitDef(\"corlab\"), \"gaia\").At(0.1, 0.1)\n";
         let rec = crate::recognizer::recognize_file("units.lua", src).unwrap();
-        assert!(rec.findings.iter().any(|f| f.message.contains("unknown statement verb 'Spwan'")
-            && f.message.contains("When")
-            && f.message.contains("Spawn")), "{:?}", rec.findings);
+        assert!(
+            rec.findings
+                .iter()
+                .any(|f| f.message.contains("unknown statement verb 'Spwan'")
+                    && f.message.contains("When")
+                    && f.message.contains("Spawn")),
+            "{:?}",
+            rec.findings
+        );
         assert_eq!(rec.file.opaque.len(), 1);
     }
 
@@ -739,7 +827,11 @@ When(C()).Do(E())
         let src = "Spawn(UnitDef(\"corlab\"), \"gaia\")\n\t.At(0.42, 0.42)\n\t.Named(\"hub\")\n\t.Grouped(\"outpost\")\n";
         let rec = crate::recognizer::recognize_file("units.lua", src).unwrap();
         assert!(rec.findings.is_empty(), "findings: {:?}", rec.findings);
-        let steps: Vec<&str> = rec.file.groups[0].triggers[0].steps.iter().map(|s| s.verb.as_str()).collect();
+        let steps: Vec<&str> = rec.file.groups[0].triggers[0]
+            .steps
+            .iter()
+            .map(|s| s.verb.as_str())
+            .collect();
         assert_eq!(steps, vec!["Spawn", "At", "Named", "Grouped"]);
         assert_eq!(rec.file.unit_defs, vec!["hub".to_string()]);
         assert_eq!(rec.file.group_defs, vec!["outpost".to_string()]);
@@ -754,17 +846,33 @@ When(C()).Do(E())
     fn a_spawn_without_at_is_a_finding_and_unknown_chain_verbs_name_the_chain() {
         let src = "Spawn(UnitDef(\"corlab\"), \"gaia\").Armed(true)\n";
         let rec = crate::recognizer::recognize_file("units.lua", src).unwrap();
-        assert!(rec.findings.iter().any(|f| f.message.contains("no At")), "{:?}", rec.findings);
-        assert!(rec.findings.iter().any(|f| f.message.contains("unknown chain verb 'Armed'")
-            && f.message.contains("At")), "{:?}", rec.findings);
+        assert!(
+            rec.findings.iter().any(|f| f.message.contains("no At")),
+            "{:?}",
+            rec.findings
+        );
+        assert!(
+            rec.findings
+                .iter()
+                .any(|f| f.message.contains("unknown chain verb 'Armed'")
+                    && f.message.contains("At")),
+            "{:?}",
+            rec.findings
+        );
     }
 
     #[test]
     fn trigger_files_reference_roster_names_for_the_cross_check() {
-        let src = "When(Unit(\"hub\").IsDestroyed())\n\t.Do(Transfer.Units(\"outpost\", Team.Player))\n";
+        let src =
+            "When(Unit(\"hub\").IsDestroyed())\n\t.Do(Transfer.Units(\"outpost\", Team.Player))\n";
         let rec = crate::recognizer::recognize_file("triggers/t.lua", src).unwrap();
         let units: Vec<&str> = rec.file.unit_refs.iter().map(|r| r.name.as_str()).collect();
-        let groups: Vec<&str> = rec.file.group_refs.iter().map(|r| r.name.as_str()).collect();
+        let groups: Vec<&str> = rec
+            .file
+            .group_refs
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect();
         assert_eq!(units, vec!["hub"]);
         assert_eq!(groups, vec!["outpost"]);
         assert!(rec.file.unit_defs.is_empty());
@@ -788,7 +896,11 @@ When(C()).Do(E())
         .unwrap();
 
         let (ast, findings) = crate::collect_ast(&[dir.clone()], 1);
-        assert!(findings.is_empty(), "{:?}", findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        assert!(
+            findings.is_empty(),
+            "{:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
         let steps: Vec<&str> = ast.files[0].groups[0].triggers[0]
             .steps
             .iter()
@@ -807,9 +919,18 @@ When(C()).Do(E())
         )
         .unwrap();
         let (ast, findings) = crate::collect_ast(&[dir.clone()], 2);
-        assert_eq!(findings.len(), 1, "{:?}", findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        assert_eq!(
+            findings.len(),
+            1,
+            "{:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
         assert!(findings[0].message.contains("no control flow"));
-        let bad = ast.files.iter().find(|f| f.path.ends_with("bad.lua")).unwrap();
+        let bad = ast
+            .files
+            .iter()
+            .find(|f| f.path.ends_with("bad.lua"))
+            .unwrap();
         match &bad.groups[0].triggers[0].steps[1].args[0] {
             Value::String { value, .. } => assert_eq!(value, "x"),
             other => panic!("the bound local reads as its string, got {other:?}"),
@@ -833,8 +954,13 @@ When(C()).Do(E())
         )
         .unwrap();
         let (ast, findings) = crate::collect_ast(&[dir.clone()], 1);
-        assert!(findings.iter().any(|f| f.message.contains("no such name") && f.message.contains("hubb")),
-            "{:?}", findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.message.contains("no such name") && f.message.contains("hubb")),
+            "{:?}",
+            findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+        );
         assert_eq!(
             ast.surface["enums"]["team_role"][0].as_str(),
             Some("player")

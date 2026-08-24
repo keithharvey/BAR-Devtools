@@ -22,6 +22,7 @@
 ---| "UnitTaken"
 ---| "UnitEnteredLos"
 ---| "mission.objective_changed"
+---| "mission.variable_changed"
 ---| "waves.wave_spawned"
 ---| "waves.wave_cleared"
 ---| "waves.boss_spawned"
@@ -37,6 +38,8 @@
 ---@class MissionContext
 ---@field GetUnitDefCount fun(teamID: integer, unitDefName: string): integer count of finished units of that def
 ---@field IsObjectiveComplete fun(name: string): boolean
+---@field GetVariable fun(name: string): number|boolean|string|nil
+---@field SetVariable fun(name: string, value: number|boolean|string)
 ---@field IsUnitDestroyed fun(name: string): boolean
 ---@field IsUnitSpotted fun(name: string, allyTeamID: integer): boolean
 ---@field TransferGroup fun(groupName: string, teamID: integer)
@@ -71,6 +74,8 @@
 ---@field RevealedWhen fun(condition: MissionCondition): MissionObjectiveDeclaration replace the default reveal cadence with the mission's own moment
 ---@field Foreshadow fun(): MissionObjectiveDeclaration draw the line greyed-out before its reveal
 ---@field IsComplete fun(): MissionCondition
+---@field Complete fun(): MissionEffect the effect side, for the files that include this one
+---@field Reveal fun(): MissionEffect
 
 ---@class MissionObjectiveDeclarationEntry
 ---@field id string
@@ -95,6 +100,7 @@
 ---@field Neutral fun(): MissionSpawnChain starts inert: neither shoots nor is shot at, until handed over
 ---@field IsSpotted fun(team: MissionTeam): MissionCondition the handle is also the reference
 ---@field IsDestroyed fun(): MissionCondition
+---@field name MissionUnitName? set once the file is loaded: Named, or the export key
 
 --- No At: a claimed unit is already somewhere. OrSpawnAt is required because it
 --- says where to build one when the team turns out to have none.
@@ -104,6 +110,7 @@
 ---@field OrSpawnAt fun(fx: number, fz: number): MissionClaimChain
 ---@field IsSpotted fun(team: MissionTeam): MissionCondition
 ---@field IsDestroyed fun(): MissionCondition
+---@field name MissionUnitName? set once the file is loaded: Named, or the export key
 
 ---@class MissionRosterEntry
 ---@field def UnitDefName
@@ -123,8 +130,9 @@
 ---@field order integer 1-based declaration order within the file
 ---@field condition MissionCondition
 ---@field effects MissionEffect[] executed in Do order when the condition fires
----@field once boolean fire at most once (default true)
+---@field limit integer|nil fires allowed (Once = 1, Times(n) = n); nil = unbounded
 ---@field delayFrames integer hold the effects until the conditions have held this long; 0 fires at once
+---@field cooldownFrames integer floor between fires of a repeating trigger
 
 --- No terminator: the loader finalizes all chains when the include returns; a
 --- chain without a Do fails the load.
@@ -133,6 +141,8 @@
 ---@field After fun(seconds: MissionSeconds): TriggerChain hold the effects until the conditions have held that long
 ---@field Do fun(effect: MissionEffect): TriggerChain repeatable; effects run in Do order
 ---@field Once fun(once: boolean?): TriggerChain default true; pass false for repeating triggers
+---@field Times fun(count: integer): TriggerChain fire at most this many times
+---@field Every fun(seconds: MissionSeconds): TriggerChain a repeating trigger's floor between fires
 
 --- Carries the name only; resolution to an id happens where Spring exists.
 ---@class MissionUnitDefRef
@@ -148,6 +158,8 @@
 ---@class TriggerEngineState
 ---@field fired table<string, boolean> trigger id -> has fired
 ---@field heldSince table<string, integer> trigger id -> frame its conditions first held, for delays
+---@field fires table<string, integer> trigger id -> how many times it has fired
+---@field lastFired table<string, integer> trigger id -> frame of its last fire
 
 --- The manifest's requires list IS the vocabulary whitelist; a global collision
 --- is a load error.
@@ -159,3 +171,25 @@
 
 ---@class MissionDslContribution
 ---@field ForFile fun(file: MissionDslFile): { env: table<string, any>, Finalize: fun()|nil }
+
+--- A group as a value, from units.lua's Group(...): what Grouped and
+--- Transfer.* take in place of the name.
+---@class MissionGroupRef
+---@field group MissionUnitGroup
+
+--- The declaration chain in variables.lua: a typed slot with a default. The
+--- value lives in the pile; the handle is both sides of it.
+---@class MissionVariableChain
+---@field Number fun(default: number): MissionVariableChain
+---@field Boolean fun(default: boolean): MissionVariableChain
+---@field String fun(default: string): MissionVariableChain
+---@field Is fun(value: number|boolean|string): MissionCondition
+---@field AtLeast fun(n: number): MissionCondition
+---@field AtMost fun(n: number): MissionCondition
+---@field Set fun(value: number|boolean|string): MissionEffect
+---@field Add fun(n: number): MissionEffect
+
+---@class MissionVariableEntry
+---@field name string
+---@field kind "number"|"boolean"|"string"
+---@field default number|boolean|string

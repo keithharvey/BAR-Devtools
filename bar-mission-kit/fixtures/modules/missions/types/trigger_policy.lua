@@ -42,12 +42,15 @@ function Claim(unitDef, team) end
 ---@type { Player: MissionTeam }
 Team = {}
 
----What units.lua exported: `return { hub = hub }` makes Units.hub the
----reference to that unit, named by its export key unless Named said otherwise.
----@type table<string, MissionUnitRef>
-Units = {}
+---A group as a value. units.lua sandbox only — export it and hand it to
+---Grouped and Transfer.* instead of spelling the name again.
+---@param name MissionUnitGroup
+---@return MissionGroupRef
+function Group(name) end
 
----What objectives.lua exported: `return { relieve = relieve }` makes
----Objectives.relieve the reference to that objective.
----@type table<string, MissionObjective>
-Objectives = {}
+---Declare a typed slot. variables.lua sandbox only. Chain .Number(default),
+---.Boolean(default) or .String(default); the handle then offers .Is/.AtLeast/
+---.AtMost (conditions) and .Set/.Add (effects).
+---@param name string
+---@return MissionVariableChain
+function Variable(name) end

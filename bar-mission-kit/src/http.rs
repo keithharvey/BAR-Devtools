@@ -215,7 +215,12 @@ fn respond_file(stream: &mut TcpStream, path: PathBuf) -> std::io::Result<()> {
     }
 }
 
-fn respond(stream: &mut TcpStream, code: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+fn respond(
+    stream: &mut TcpStream,
+    code: u16,
+    content_type: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     let reason = match code {
         200 => "OK",
         202 => "Accepted",
@@ -253,7 +258,10 @@ mod tests {
     }
 
     fn tmpdir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("bar-mission-kit-http-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "bar-mission-kit-http-{name}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -308,10 +316,16 @@ mod tests {
         let intent = "{\"file\":\"t.lua\",\"start\":0,\"end\":1,\"new_text\":\"x\"}";
         let response = request(
             port,
-            &format!("POST /edit HTTP/1.1\r\nContent-Length: {}\r\n\r\n{intent}", intent.len()),
+            &format!(
+                "POST /edit HTTP/1.1\r\nContent-Length: {}\r\n\r\n{intent}",
+                intent.len()
+            ),
         );
         assert!(response.starts_with("HTTP/1.1 202"), "{response}");
-        let edits: Vec<_> = std::fs::read_dir(dir.join("edits")).unwrap().flatten().collect();
+        let edits: Vec<_> = std::fs::read_dir(dir.join("edits"))
+            .unwrap()
+            .flatten()
+            .collect();
         assert_eq!(edits.len(), 1);
         assert_eq!(std::fs::read_to_string(edits[0].path()).unwrap(), intent);
     }
@@ -322,7 +336,10 @@ mod tests {
         let port = spawn("127.0.0.1:0", dir.clone()).unwrap();
         let response = request(port, "POST /edit HTTP/1.1\r\nContent-Length: 4\r\n\r\nnope");
         assert!(response.starts_with("HTTP/1.1 400"), "{response}");
-        assert!(!dir.join("edits").exists() || std::fs::read_dir(dir.join("edits")).unwrap().count() == 0);
+        assert!(
+            !dir.join("edits").exists()
+                || std::fs::read_dir(dir.join("edits")).unwrap().count() == 0
+        );
     }
 
     #[test]
@@ -345,11 +362,20 @@ mod tests {
         let body = "{\"name\":\"cm8_ashfall\"}";
         let response = request(
             port,
-            &format!("POST /select_mission HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}", body.len()),
+            &format!(
+                "POST /select_mission HTTP/1.1\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            ),
         );
         assert!(response.starts_with("HTTP/1.1 200"), "{response}");
-        assert_eq!(std::fs::read_to_string(dir.join("select_mission.json")).unwrap(), body);
-        let response = request(port, "POST /select_mission HTTP/1.1\r\nContent-Length: 4\r\n\r\nnope");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("select_mission.json")).unwrap(),
+            body
+        );
+        let response = request(
+            port,
+            "POST /select_mission HTTP/1.1\r\nContent-Length: 4\r\n\r\nnope",
+        );
         assert!(response.starts_with("HTTP/1.1 400"), "{response}");
     }
 

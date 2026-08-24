@@ -14,7 +14,7 @@
 ---@field AtT3 TransferGrant
 ---@field Constructors TransferGrant
 ---@field Resource TransferGrant
----@overload fun(group: MissionUnitGroup, team: MissionTeam): MissionEffect
+---@overload fun(group: MissionUnitGroup|MissionGroupRef, team: MissionTeam): MissionEffect
 
 ---@class TransferResources : TransferGrant
 ---@field Metal TransferGrant
@@ -25,7 +25,7 @@
 --- Fiat: performable, and deliberately not grantable — a mode has no say, so
 --- there is no domain for a grant to be written against.
 ---@class TransferGive
----@overload fun(group: MissionUnitGroup, team: MissionTeam): MissionEffect
+---@overload fun(group: MissionUnitGroup|MissionGroupRef, team: MissionTeam): MissionEffect
 
 ---@class TransferActions
 ---@field Units TransferUnits

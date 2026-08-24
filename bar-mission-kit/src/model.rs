@@ -48,6 +48,8 @@ pub struct FileAst {
     /// unnamed handle by its key. objectives.lua exports the same way.
     pub unit_exports: Vec<Export>,
     pub objective_exports: Vec<Export>,
+    pub group_exports: Vec<Export>,
+    pub variable_exports: Vec<Export>,
     /// References through an include — `local Units = VFS.Include(".../units.lua")`
     /// then `Units.hub` — cross-checked against what that file exports.
     pub export_refs: Vec<ExportRef>,
