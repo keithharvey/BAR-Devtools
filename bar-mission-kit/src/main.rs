@@ -303,6 +303,9 @@ fn cross_check_names(files: &[model::FileAst]) -> Vec<model::Finding> {
     // Objective ids get the same contract once a definition site exists:
     // objectives.lua declares, everything else references — the runtime
     // fails these loads, so check mode reports them.
+    if files.iter().any(|f| f.path.ends_with("units.lua") || recognizer::is_objectives(&f.path)) {
+        findings.extend(cross_check_exports(files));
+    }
     if files.iter().any(|f| recognizer::is_objectives(&f.path)) {
         let objective_defs: std::collections::HashSet<&str> =
             files.iter().flat_map(|f| f.objective_defs.iter().map(String::as_str)).collect();
@@ -316,6 +319,33 @@ fn cross_check_names(files: &[model::FileAst]) -> Vec<model::Finding> {
                             "Objective(\"{}\"): objectives.lua declares no such objective",
                             r.name
                         ),
+                        span: None,
+                    });
+                }
+            }
+        }
+    }
+    findings
+}
+
+/// Exports are the other half of the contract: `Units.<key>` and
+/// `Objectives.<key>` must name something a definition file returned.
+fn cross_check_exports(files: &[model::FileAst]) -> Vec<model::Finding> {
+    let mut findings = Vec::new();
+    let pairs: [(&str, fn(&model::FileAst) -> &Vec<model::Export>, fn(&model::FileAst) -> &Vec<model::NameRef>, &str); 2] = [
+        ("Units", |f| &f.unit_exports, |f| &f.unit_export_refs, "units.lua"),
+        ("Objectives", |f| &f.objective_exports, |f| &f.objective_export_refs, "objectives.lua"),
+    ];
+    for (table, exports, refs, site) in pairs {
+        let keys: std::collections::HashSet<&str> =
+            files.iter().flat_map(|f| exports(f).iter().map(|e| e.key.as_str())).collect();
+        for file in files {
+            for r in refs(file) {
+                if !keys.contains(r.name.as_str()) {
+                    findings.push(model::Finding {
+                        path: file.path.clone(),
+                        line: r.line,
+                        message: format!("{table}.{}: {site} exports no such key", r.name),
                         span: None,
                     });
                 }
@@ -537,6 +567,30 @@ Objective("find_the_enclave")
             "findings: {:?}",
             rec.findings
         );
+    }
+
+    #[test]
+    fn export_references_cross_check_against_what_the_files_return() {
+        let board = crate::recognizer::recognize_file(
+            "m/objectives.lua",
+            "local relieve = Objective(\"relieve_the_outpost\")\nreturn { relieve = relieve }\n",
+        )
+        .unwrap();
+        let roster = crate::recognizer::recognize_file(
+            "m/units.lua",
+            "local hub = Spawn(UnitDef(\"corlab\"), \"gaia\").At(0.4, 0.4)\nreturn { hub = hub }\n",
+        )
+        .unwrap();
+        let trigger = crate::recognizer::recognize_file(
+            "m/triggers/a.lua",
+            "When(Units.hub.IsSpotted(Team.Player)).Do(Objectives.relieve.Complete())\nWhen(Units.tower.IsDestroyed()).Do(Objectives.ghost.Complete())\n",
+        )
+        .unwrap();
+        let findings = super::cross_check_names(&[board.file, roster.file, trigger.file]);
+        let messages: Vec<&str> = findings.iter().map(|f| f.message.as_str()).collect();
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert!(messages.iter().any(|m| m.starts_with("Units.tower:")));
+        assert!(messages.iter().any(|m| m.starts_with("Objectives.ghost:")));
     }
 
     #[test]

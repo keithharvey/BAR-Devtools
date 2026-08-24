@@ -1,17 +1,8 @@
 ---@meta policy mode
 
---- The raptors mode vocabulary: what a preset under modules/raptors/modes
---- may say. The verbs come from the shared PvE grammar in modules/waves; the
---- noun is the swarm, declared ahead of the pack it will name when raptors
---- migrates onto the wave director.
-
---- The raptor swarm as a mode noun. Every dial takes one, same as every
---- other PvE flavor, so the preset reads identically to scavengers'.
 ---@class RaptorsPackNoun
 
---- The Mode chain (raptors vocabulary). Every verb returns the chain; the
---- chain IS the ModeConfig the preset file returns. The lock modifiers apply
---- to the option the preceding verb wrote, which is how Difficulty and
+--- The lock modifiers apply to the option the preceding verb wrote, which is how Difficulty and
 --- Endless are left open for the lobby while everything else is pinned.
 ---@class RaptorsModeChain
 ---@field Desc fun(desc: string): RaptorsModeChain
@@ -32,9 +23,6 @@
 --- keeps every existing lobby working.
 ---@field Bot fun(aiName: string): RaptorsModeChain
 
----Start a mode chain; the key is the name's snake_case. The category is
----not a parameter: the grammar binds every chain from this module to
----"game".
 ---@param name string
 ---@return RaptorsModeChain
 function Mode(name) end

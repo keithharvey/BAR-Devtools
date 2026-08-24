@@ -315,14 +315,14 @@ impl TypeSurface {
         }
     }
 
-    /// A chain class: at least one field, every field a fun returning the
-    /// class itself. These are the builder chains statements are made of.
+    /// A chain class: at least one field is a fun returning the class itself.
+    /// These are the builder chains statements are made of. A handle may
+    /// also carry reference verbs (a roster handle's IsSpotted returns a
+    /// condition) — those do not make it any less the chain.
     pub fn is_chain_class(&self, name: &str) -> bool {
         self.classes
             .get(name)
-            .map(|fields| {
-                !fields.is_empty() && fields.values().all(|sig| sig.ret.as_deref() == Some(name))
-            })
+            .map(|fields| fields.values().any(|sig| sig.ret.as_deref() == Some(name)))
             .unwrap_or(false)
     }
 
@@ -357,9 +357,18 @@ impl TypeSurface {
     /// A class's callable field names — the chain verbs a head mapped to it
     /// admits.
     pub fn class_field_names(&self, class: &str) -> Vec<String> {
+        // On a chain, the verbs are the steps that return the chain; a
+        // handle's reference verbs (IsSpotted on a Spawn) are members, not
+        // steps a statement may take.
         self.classes
             .get(class)
-            .map(|fields| fields.keys().filter(|k| *k != CALLABLE).cloned().collect())
+            .map(|fields| {
+                fields
+                    .iter()
+                    .filter(|(name, sig)| *name != CALLABLE && sig.ret.as_deref() == Some(class))
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -370,8 +379,7 @@ impl TypeSurface {
     pub fn chain_verbs(&self, head: &str) -> Vec<String> {
         self.statement_heads()
             .get(head)
-            .and_then(|class| self.classes.get(class))
-            .map(|fields| fields.keys().cloned().collect())
+            .map(|class| self.class_field_names(class))
             .unwrap_or_default()
     }
 

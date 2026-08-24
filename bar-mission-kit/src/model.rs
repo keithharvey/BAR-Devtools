@@ -43,6 +43,15 @@ pub struct FileAst {
     /// cross-check findings.
     pub unit_refs: Vec<NameRef>,
     pub group_refs: Vec<NameRef>,
+    /// What this file `return`s: `return { hub = hub }` in units.lua exports
+    /// the handle bound to `hub` under that key, and the runtime names an
+    /// unnamed handle by its key. objectives.lua exports the same way.
+    pub unit_exports: Vec<Export>,
+    pub objective_exports: Vec<Export>,
+    /// `Units.<key>` / `Objectives.<key>` references this file makes — real
+    /// references, cross-checked against the exports mission-wide.
+    pub unit_export_refs: Vec<NameRef>,
+    pub objective_export_refs: Vec<NameRef>,
     /// Byte offset where a whole new trigger chain can be appended (EOF).
     pub insert_trigger_at: usize,
     /// Sections in file order. Chains before any `---@group` land in an
@@ -165,6 +174,15 @@ pub struct Field {
 pub struct Opaque {
     pub span: Span,
     pub reason: String,
+}
+
+/// One exported handle: the Lua key and the wire name it stands for (a
+/// unit's Named name or its key; an objective's id).
+#[derive(Serialize, Debug, Clone)]
+pub struct Export {
+    pub key: String,
+    pub name: String,
+    pub line: usize,
 }
 
 /// One named-noun reference (a Unit/Units argument) with its source line.

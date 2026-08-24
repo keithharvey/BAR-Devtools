@@ -1,22 +1,14 @@
 ---@meta actions
 
---- Transfer's actions, declared once for both grammars. A mode names one to
---- grant it, a mission calls one to perform it, and this is the declaration
---- both read — an action cannot mean one thing to a mode file and another to
---- a trigger file, because there is only the one entry.
----
---- An action is callable where it can be performed (@overload) and carries
---- variants where a grant can be narrowed (.AtT2, .Constructors). Either
---- facet may be absent: Give cannot be granted, Assist cannot be performed.
+--- One declaration read by both grammars: an action cannot mean one thing to a
+--- mode file and another to a trigger file.
 
---- Narrowing a grant: the same action, said of one unit category or one tech
---- tier. Not callable — a mission performs the action, not a slice of it.
+--- Not callable: a mission performs the action, not a slice of it.
 ---@class TransferGrant
 ---@field domain string
 ---@field category string|nil
 ---@field tier integer|nil
 
---- Units: grantable, narrowable, and performable.
 ---@class TransferUnits : TransferGrant
 ---@field AtT2 TransferGrant
 ---@field AtT3 TransferGrant
@@ -24,7 +16,6 @@
 ---@field Resource TransferGrant
 ---@overload fun(group: MissionUnitGroup, team: MissionTeam): MissionEffect
 
---- Resources: grantable and narrowable; nothing performs it from a trigger.
 ---@class TransferResources : TransferGrant
 ---@field Metal TransferGrant
 ---@field Energy TransferGrant

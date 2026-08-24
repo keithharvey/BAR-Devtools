@@ -114,12 +114,42 @@ pub fn recognize_file_with(
         findings: Vec::new(),
         order: 0,
         bindings: BTreeMap::new(),
+        exports: Vec::new(),
     };
 
     let chunk: LuaChunk = tree.get_chunk_node();
     if let Some(block) = chunk.get_block() {
         for stat in block.get_stats() {
             rec.statement(&stat);
+        }
+    }
+
+    // Exports: what the other files may reference by key. A unit export
+    // without Named takes its key as its name (the runtime does the same),
+    // so the key is also a declaration the cross-check must accept.
+    let mut unit_exports = Vec::new();
+    let mut objective_exports = Vec::new();
+    for (key, value, span) in &rec.exports {
+        let line = line_of(source, span.0);
+        match value {
+            Value::Verb { path, calls, .. } if path == "Objective" => {
+                if let Some(Value::String { value: id, .. }) = calls.first().and_then(|c| c.args.first()) {
+                    objective_exports.push(Export { key: key.clone(), name: id.clone(), line });
+                }
+            }
+            Value::Verb { path, calls, .. } if path == "Spawn" || path == "Claim" => {
+                let named = calls.iter().find(|c| c.name.as_deref() == Some("Named")).and_then(|c| match c.args.first() {
+                    Some(Value::String { value, .. }) => Some(value.clone()),
+                    _ => None,
+                });
+                unit_exports.push(Export { key: key.clone(), name: named.unwrap_or_else(|| key.clone()), line });
+            }
+            _ => rec.findings.push(Finding {
+                path: rec.path.clone(),
+                line,
+                message: format!("export '{key}' is not a Spawn, Claim or Objective handle of this file"),
+                span: None,
+            }),
         }
     }
 
@@ -164,6 +194,13 @@ pub fn recognize_file_with(
             }
         }
     }
+    if annotator.declares {
+        for export in &unit_exports {
+            if !nouns.unit_defs.contains(&export.name) {
+                nouns.unit_defs.push(export.name.clone());
+            }
+        }
+    }
     nouns.objectives.sort();
     nouns.objectives.dedup();
 
@@ -178,6 +215,10 @@ pub fn recognize_file_with(
             group_defs: nouns.group_defs,
             unit_refs: nouns.unit_refs,
             group_refs: nouns.group_refs,
+            unit_exports,
+            objective_exports,
+            unit_export_refs: nouns.unit_export_refs,
+            objective_export_refs: nouns.objective_export_refs,
             insert_trigger_at: source.len(),
             groups,
             opaque: rec.opaque,
@@ -200,6 +241,8 @@ struct Rec<'s> {
     /// Locals bound so far, in file order: name -> the value it names. A
     /// reference to one reads as that value, spans pointing at the binding.
     bindings: BTreeMap<String, Value>,
+    /// The file's `return { key = local }`: key -> the bound value.
+    exports: Vec<(String, Value, Span)>,
 }
 
 /// A verb expression unrolled from the nested call CST:
@@ -256,6 +299,31 @@ impl<'s> Rec<'s> {
                 };
                 if let Some(trigger) = self.statement_chain(&call, span, label) {
                     self.groups.last_mut().unwrap().triggers.push(trigger);
+                }
+            }
+            // A definition file returns its handles: `return { hub = hub }`.
+            // The key is the Lua name the other files reference it by.
+            LuaStat::ReturnStat(ret) if self.kind != FileKind::ModePreset => {
+                let exprs: Vec<LuaExpr> = ret.get_expr_list().collect();
+                match exprs.as_slice() {
+                    [LuaExpr::TableExpr(table)] => {
+                        for field in table.get_fields() {
+                            let key = match field.get_field_key() {
+                                Some(LuaIndexKey::Name(token)) => token.get_name_text().to_string(),
+                                _ => {
+                                    self.finding(span, "an export needs a name: `return { hub = hub }`".into());
+                                    continue;
+                                }
+                            };
+                            let value = match field.get_value_expr() {
+                                Some(expr) => self.value(&expr),
+                                None => continue,
+                            };
+                            let field_span = node_span(&field);
+                            self.exports.push((key, value, field_span));
+                        }
+                    }
+                    _ => self.mark_opaque(span, "a mission file returns a table of its own handles, or nothing"),
                 }
             }
             // Mode presets return their chain; the return IS the statement.
@@ -668,6 +736,8 @@ struct Nouns {
     group_defs: Vec<String>,
     unit_refs: Vec<NameRef>,
     group_refs: Vec<NameRef>,
+    unit_export_refs: Vec<NameRef>,
+    objective_export_refs: Vec<NameRef>,
 }
 
 struct Annotator<'s> {
@@ -755,10 +825,50 @@ impl<'s> Annotator<'s> {
     /// stamping each invocation's args from the signature it lands on, then
     /// recurse into every argument.
     fn value(&self, value: &mut Value, nouns: &mut Nouns) {
-        let Value::Verb { path, calls, .. } = value else {
+        // `Units.hub` / `Objectives.relieve` are references to exports: they
+        // read as the Unit / Objective surface, and the key is cross-checked
+        // mission-wide against what the definition file returned.
+        // The verb folds into the dotted path (`Units.hub.IsSpotted`, as
+        // `Team.Player.Has` does), so the tail past the key is the member.
+        let export_of = |path: &str| -> Option<(&'static str, String, Option<String>)> {
+            let parts: Vec<&str> = path.split('.').collect();
+            let head = match parts.first() {
+                Some(&"Units") => "Unit",
+                Some(&"Objectives") => "Objective",
+                _ => return None,
+            };
+            match parts.as_slice() {
+                [_, key] => Some((head, key.to_string(), None)),
+                [_, key, member] => Some((head, key.to_string(), Some(member.to_string()))),
+                _ => None,
+            }
+        };
+        if let Value::Name { path, span } = value {
+            if let Some((head, key, _)) = export_of(path) {
+                let r = NameRef { name: key, line: line_of(self.source, span.0) };
+                if head == "Unit" { nouns.unit_export_refs.push(r) } else { nouns.objective_export_refs.push(r) }
+            }
+            return;
+        }
+        let Value::Verb { path, calls, span } = value else {
             return;
         };
-        let mut current: Option<crate::types::FnSig> = self.surface.resolve_path(path);
+        let mut current: Option<crate::types::FnSig> = match export_of(path) {
+            Some((head, key, member)) => {
+                let r = NameRef { name: key, line: line_of(self.source, span.0) };
+                if head == "Unit" { nouns.unit_export_refs.push(r) } else { nouns.objective_export_refs.push(r) }
+                let handle = self.surface.resolve_path(head);
+                match member {
+                    None => handle,
+                    Some(name) => handle
+                        .as_ref()
+                        .and_then(|h| h.ret.as_deref())
+                        .and_then(|class| self.surface.member_sig(class, &name))
+                        .cloned(),
+                }
+            }
+            None => self.surface.resolve_path(path),
+        };
         for call in calls.iter_mut() {
             let sig = match &call.name {
                 None => current.clone(),
@@ -862,6 +972,38 @@ mod tests {
         let second = &r.file.groups[0].triggers[1].steps[0];
         let Value::Verb { calls, .. } = &second.args[0] else { panic!() };
         assert!(matches!(&calls[0].args[1], Value::Number { value, .. } if *value == 4.0));
+    }
+
+    #[test]
+    fn a_definition_file_exports_its_handles() {
+        let src = "local hub = Spawn(UnitDef(\"corlab\"), \"gaia\").At(0.4, 0.4)\nlocal boss = Claim(UnitDef(\"armcom\"), \"enemy\").Named(\"armada_commander\").OrSpawnAt(0.8, 0.8)\nreturn { hub = hub, boss = boss }\n";
+        let r = recognize_file("t/units.lua", src).unwrap();
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let exports: Vec<(&str, &str)> = r.file.unit_exports.iter().map(|e| (e.key.as_str(), e.name.as_str())).collect();
+        assert_eq!(exports, vec![("hub", "hub"), ("boss", "armada_commander")]);
+        // the key names the unnamed handle, so it counts as a declared name
+        assert!(r.file.unit_defs.contains(&"hub".to_string()));
+        assert!(r.file.unit_defs.contains(&"armada_commander".to_string()));
+    }
+
+    #[test]
+    fn export_references_read_as_the_surface_they_stand_for() {
+        let src = "When(Units.hub.IsSpotted(Team.Player)).Do(Combat.Protect(Units.hub))\nWhen(Objectives.relieve.IsComplete()).Do(MatchFlow.Victory(Team.Player))\n";
+        let r = recognize_file("t/triggers/a.lua", src).unwrap();
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let units: Vec<&str> = r.file.unit_export_refs.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(units, vec!["hub", "hub"]);
+        let objectives: Vec<&str> = r.file.objective_export_refs.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(objectives, vec!["relieve"]);
+    }
+
+    #[test]
+    fn an_objectives_file_exports_ids_by_key() {
+        let src = "local relieve = Objective(\"relieve_the_outpost\").Title(\"Relieve\")\nreturn { relieve = relieve, bogus = 3 }\n";
+        let r = recognize_file("t/objectives.lua", src).unwrap();
+        assert_eq!(r.file.objective_exports.len(), 1);
+        assert_eq!(r.file.objective_exports[0].name, "relieve_the_outpost");
+        assert!(findings(&r).iter().any(|m| m.contains("bogus")));
     }
 
     #[test]

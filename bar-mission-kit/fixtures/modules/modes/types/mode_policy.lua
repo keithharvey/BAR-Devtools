@@ -1,12 +1,5 @@
 ---@meta policy mode
 
---- The game axis's mode-preset surface: what modules/modes/modes/*.lua files
---- author against (via mode_dsl.lua over modules/mode_builder.lua). The axis
---- governs the Main options, so its verbs speak about the base rules of a
---- match; flavors bring their own chains for their own dials.
-
---- The Mode chain (game axis vocabulary). Every verb returns the chain; the
---- chain IS the ModeConfig the preset file returns.
 ---@class GameModeChain
 ---@field Desc fun(desc: string): GameModeChain
 ---@field Ranked fun(enabled: boolean?): GameModeChain permission is a flag; Ranked(false) pins ranked_game off, lockable like any policy

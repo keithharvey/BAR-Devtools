@@ -1,11 +1,8 @@
 ---@meta actions
 
---- MatchFlow's actions, declared once for every grammar that names them.
---- Each is a class that is callable where it can be performed; a mode facet
---- (a domain a grant is written against) can be added to any of them without
---- a second declaration somewhere else.
+--- Each action is a class with a call overload, so a mode facet (a domain a grant is written
+--- against) can be added to any of them without a second declaration elsewhere.
 
---- Holds from the first cadence tick after arming.
 ---@class MatchFlowStarted
 ---@overload fun(): MissionCondition
 
