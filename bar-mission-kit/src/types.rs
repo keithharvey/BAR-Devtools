@@ -485,6 +485,44 @@ impl TypeSurface {
         }
     }
 
+    /// The class a whole value resolves to: the path, then every named call
+    /// chained onto it. What an exported handle IS, for the files that read it.
+    pub fn value_class(&self, value: &crate::model::Value) -> Option<String> {
+        match value {
+            crate::model::Value::Name { path, .. } => self.resolve_path(path)?.ret,
+            crate::model::Value::Verb { path, calls, .. } => {
+                let mut class = self.resolve_path(path)?.ret?;
+                for call in calls {
+                    if let Some(name) = &call.name {
+                        class = self.member_sig(&class, name)?.ret.clone()?;
+                    }
+                }
+                Some(class)
+            }
+            _ => None,
+        }
+    }
+
+    /// What a handle of `class` can say: (verb, role, example arguments) for
+    /// each callable field returning a condition or an effect. Chain steps
+    /// (fields returning the class itself) are the declaration's, not the
+    /// reader's.
+    pub fn handle_verbs(&self, class: &str) -> Vec<(String, &'static str, String)> {
+        let mut out = Vec::new();
+        for (field, sig) in self.classes.get(class).into_iter().flatten() {
+            if field == CALLABLE {
+                continue;
+            }
+            let role = match sig.ret.as_deref() {
+                Some("MissionCondition") => "condition",
+                Some(ret) if ret.contains("Effect") => "effect",
+                _ => continue,
+            };
+            out.push((field.clone(), role, self.arguments(sig)));
+        }
+        out
+    }
+
     /// The signature of `.name(...)` chained after something returning
     /// `class` (or of `class`'s member for the first named call).
     pub fn member_sig(&self, class: &str, name: &str) -> Option<&FnSig> {

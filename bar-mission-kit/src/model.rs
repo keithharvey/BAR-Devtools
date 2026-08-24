@@ -50,6 +50,11 @@ pub struct FileAst {
     pub objective_exports: Vec<Export>,
     pub group_exports: Vec<Export>,
     pub variable_exports: Vec<Export>,
+    /// Every export, whatever it is: anything a definition file returns may
+    /// be referenced by key from the files that include it.
+    pub exports: Vec<Export>,
+    /// `local X = VFS.Include(path)` bindings: alias -> included path.
+    pub imports: std::collections::BTreeMap<String, String>,
     /// References through an include — `local Units = VFS.Include(".../units.lua")`
     /// then `Units.hub` — cross-checked against what that file exports.
     pub export_refs: Vec<ExportRef>,
@@ -182,8 +187,15 @@ pub struct Opaque {
 #[derive(Serialize, Debug, Clone)]
 pub struct Export {
     pub key: String,
+    /// The wire name for a handle (Named, the objective id, the group or
+    /// variable name); the key itself for anything else.
     pub name: String,
     pub line: usize,
+    /// The class the exported value resolves to through the type surface
+    /// (`MissionSpawnChain`, `MissionObjectiveDeclaration`, ...), when it is a
+    /// value the surface knows — what the palette derives the handle's verbs from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
 }
 
 /// A reference to an included file's export: the include path as written,

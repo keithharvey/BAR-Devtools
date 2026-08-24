@@ -154,35 +154,52 @@ pub fn recognize_file_with(
     let mut objective_exports = Vec::new();
     let mut group_exports = Vec::new();
     let mut variable_exports = Vec::new();
+    let mut exports = Vec::new();
     for (key, value, span) in &rec.exports {
         let line = line_of(source, span.0);
-        match value {
+        let first_string =
+            |calls: &[crate::model::Invocation]| match calls.first().and_then(|c| c.args.first()) {
+                Some(Value::String { value, .. }) => Some(value.clone()),
+                _ => None,
+            };
+        // Anything exports. A handle exports under its wire name; the class
+        // the value resolves to is what the other side may say about it.
+        let (name, kind) = match value {
             Value::Verb { path, calls, .. } if path == "Objective" => {
-                if let Some(Value::String { value: id, .. }) = calls.first().and_then(|c| c.args.first()) {
-                    objective_exports.push(Export { key: key.clone(), name: id.clone(), line });
-                }
+                (first_string(calls), "objective")
             }
             Value::Verb { path, calls, .. } if path == "Spawn" || path == "Claim" => {
-                let named = calls.iter().find(|c| c.name.as_deref() == Some("Named")).and_then(|c| match c.args.first() {
-                    Some(Value::String { value, .. }) => Some(value.clone()),
-                    _ => None,
-                });
-                unit_exports.push(Export { key: key.clone(), name: named.unwrap_or_else(|| key.clone()), line });
+                let named = calls
+                    .iter()
+                    .find(|c| c.name.as_deref() == Some("Named"))
+                    .and_then(|c| match c.args.first() {
+                        Some(Value::String { value, .. }) => Some(value.clone()),
+                        _ => None,
+                    });
+                (Some(named.unwrap_or_else(|| key.clone())), "unit")
             }
-            // A group as a value and a typed slot: exports by their own name.
-            Value::Verb { path, calls, .. } if path == "Group" || path == "Variable" => {
-                if let Some(Value::String { value: name, .. }) = calls.first().and_then(|c| c.args.first()) {
-                    let list = if path == "Group" { &mut group_exports } else { &mut variable_exports };
-                    list.push(Export { key: key.clone(), name: name.clone(), line });
-                }
+            Value::Verb { path, calls, .. } if path == "Group" => (first_string(calls), "group"),
+            Value::Verb { path, calls, .. } if path == "Variable" => {
+                (first_string(calls), "variable")
             }
-            _ => rec.findings.push(Finding {
-                path: rec.path.clone(),
-                line,
-                message: format!("export '{key}' is not a Spawn, Claim, Group, Objective or Variable of this file"),
-                span: None,
-            }),
+            _ => (None, "value"),
+        };
+        let export = Export {
+            key: key.clone(),
+            name: name.clone().unwrap_or_else(|| key.clone()),
+            line,
+            class: surface.value_class(value),
+        };
+        if name.is_some() {
+            match kind {
+                "objective" => objective_exports.push(export.clone()),
+                "unit" => unit_exports.push(export.clone()),
+                "group" => group_exports.push(export.clone()),
+                "variable" => variable_exports.push(export.clone()),
+                _ => {}
+            }
         }
+        exports.push(export);
     }
 
     // Drop an empty unlabeled leading section if grouped chains exist.
@@ -264,6 +281,8 @@ pub fn recognize_file_with(
             objective_exports,
             group_exports,
             variable_exports,
+            exports,
+            imports: rec.imports.clone(),
             export_refs: nouns.export_refs,
             insert_trigger_at: source.len(),
             groups,
@@ -1145,6 +1164,14 @@ mod tests {
             .map(|e| (e.key.as_str(), e.name.as_str()))
             .collect();
         assert_eq!(exports, vec![("hub", "hub"), ("boss", "armada_commander")]);
+        assert_eq!(
+            r.file.unit_exports[0].class.as_deref(),
+            Some("MissionSpawnChain")
+        );
+        assert_eq!(
+            r.file.unit_exports[1].class.as_deref(),
+            Some("MissionClaimChain")
+        );
         // the key names the unnamed handle, so it counts as a declared name
         assert!(r.file.unit_defs.contains(&"hub".to_string()));
         assert!(r.file.unit_defs.contains(&"armada_commander".to_string()));
@@ -1173,11 +1200,20 @@ mod tests {
 
     #[test]
     fn an_objectives_file_exports_ids_by_key() {
-        let src = "local relieve = Objective(\"relieve_the_outpost\").Title(\"Relieve\")\nreturn { relieve = relieve, bogus = 3 }\n";
+        let src = "local relieve = Objective(\"relieve_the_outpost\").Title(\"Relieve\")\nreturn { relieve = relieve, enough = 3 }\n";
         let r = recognize_file("t/objectives.lua", src).unwrap();
         assert_eq!(r.file.objective_exports.len(), 1);
         assert_eq!(r.file.objective_exports[0].name, "relieve_the_outpost");
-        assert!(findings(&r).iter().any(|m| m.contains("bogus")));
+        assert_eq!(
+            r.file.objective_exports[0].class.as_deref(),
+            Some("MissionObjectiveDeclaration")
+        );
+        // Anything exports: a plain value is referenced by key like a handle,
+        // it just has no verbs of its own.
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let keys: Vec<&str> = r.file.exports.iter().map(|e| e.key.as_str()).collect();
+        assert_eq!(keys, vec!["relieve", "enough"]);
+        assert!(r.file.exports[1].class.is_none());
     }
 
     #[test]

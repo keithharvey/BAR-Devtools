@@ -184,6 +184,19 @@ struct Surface {
     /// a declaration is a composition, not one signature.
     #[serde(default)]
     declarations: Vec<SurfaceEntry>,
+    /// This mission's exported handles with their verbs (collect_ast
+    /// derives them): the rows that let an author write `Units.hub` rather
+    /// than a string.
+    #[serde(default)]
+    handles: HandleSurface,
+}
+
+#[derive(Deserialize, Default, Clone)]
+struct HandleSurface {
+    #[serde(default)]
+    conditions: Vec<SurfaceEntry>,
+    #[serde(default)]
+    effects: Vec<SurfaceEntry>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -1830,9 +1843,25 @@ fn modals(surface: &Surface) -> Modals {
         new_text: String::new(),
     };
 
-    let mut add_step = vec![group("WHEN · more conditions (all must hold)")];
+    // The mission's own handles come first: they are what this author
+    // named, and a row that writes `Units.hub` is the one that keeps the
+    // magic strings out.
+    let mut add_step = Vec::new();
+    if !surface.handles.conditions.is_empty() {
+        add_step.push(group("WHEN · this mission"));
+        for c in &surface.handles.conditions {
+            add_step.push(row("andwhen", c, format!("\t.When({})\n", c.template)));
+        }
+    }
+    add_step.push(group("WHEN · more conditions (all must hold)"));
     for c in &surface.conditions {
         add_step.push(row("andwhen", c, format!("\t.When({})\n", c.template)));
+    }
+    if !surface.handles.effects.is_empty() {
+        add_step.push(group("DO · this mission"));
+        for e in &surface.handles.effects {
+            add_step.push(row("effect", e, format!("\t.Do({})\n", e.template)));
+        }
     }
     add_step.push(group("DO · effects"));
     for e in &surface.effects {
@@ -1850,7 +1879,12 @@ fn modals(surface: &Surface) -> Modals {
     }
 
     let mut add_statement = vec![group("STARTS WHEN...")];
-    for c in &surface.conditions {
+    for c in surface
+        .handles
+        .conditions
+        .iter()
+        .chain(surface.conditions.iter())
+    {
         add_statement.push(row(
             "trigger",
             c,
@@ -1861,9 +1895,9 @@ fn modals(surface: &Surface) -> Modals {
         ));
     }
 
-    let swap = |entries: &[SurfaceEntry]| {
-        entries
-            .iter()
+    let swap = |own: &[SurfaceEntry], entries: &[SurfaceEntry]| {
+        own.iter()
+            .chain(entries.iter())
             .map(|e| row("swap", e, format!("({})", e.template)))
             .collect()
     };
@@ -1887,11 +1921,11 @@ fn modals(surface: &Surface) -> Modals {
         },
         swap_conditions: Modal {
             title: "Swap condition".into(),
-            rows: swap(&surface.conditions),
+            rows: swap(&surface.handles.conditions, &surface.conditions),
         },
         swap_effects: Modal {
             title: "Swap effect".into(),
-            rows: swap(&surface.effects),
+            rows: swap(&surface.handles.effects, &surface.effects),
         },
     }
 }
@@ -2669,6 +2703,38 @@ When(Scavengers.Horde.BossDefeated())
         assert!(!view.form.contains(".Begin("), "{}", view.form);
         assert!(!view.form.contains(".Surge("), "{}", view.form);
         assert!(!view.form.contains(".End("), "{}", view.form);
+    }
+
+    #[test]
+    fn the_missions_own_handles_lead_the_palette() {
+        let mut surface = test_surface();
+        surface["handles"] = serde_json::json!({
+            "conditions": [{ "label": "Units.hub is destroyed", "template": "Units.hub.IsDestroyed()" }],
+            "effects": [{ "label": "Objectives.relieve complete", "template": "Objectives.relieve.Complete()" }],
+        });
+        let rec = crate::recognizer::recognize_file("triggers/win.lua", WIN).unwrap();
+        let ast = MissionAst {
+            version: 1,
+            generation: 1,
+            files: vec![rec.file],
+            surface,
+        };
+        let view = render(&ast, &domains(), &Scope::default());
+        let rows = &view.modals.add_step.rows;
+        let first_cond = rows.iter().position(|r| r.kind == "andwhen").unwrap();
+        assert_eq!(
+            rows[first_cond].new_text,
+            "\t.When(Units.hub.IsDestroyed())\n"
+        );
+        assert!(rows
+            .iter()
+            .any(|r| r.kind == "effect" && r.new_text == "\t.Do(Objectives.relieve.Complete())\n"));
+        assert!(view
+            .modals
+            .swap_conditions
+            .rows
+            .iter()
+            .any(|r| r.new_text == "(Units.hub.IsDestroyed())"));
     }
 
     #[test]

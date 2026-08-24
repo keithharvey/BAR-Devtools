@@ -70,7 +70,7 @@
 ---@class MissionObjectiveDeclaration
 ---@field Title fun(title: string): MissionObjectiveDeclaration display wording; defaults to the id with underscores as spaces
 ---@field CompletedWhen fun(condition: MissionCondition): MissionObjectiveDeclaration one way to complete; a second CompletedWhen is another way (OR), each compiling to its own trigger
----@field When fun(condition: MissionCondition): MissionObjectiveDeclaration another condition on the LATEST CompletedWhen; all in a disjunct must hold (AND)
+---@field When fun(condition: MissionCondition): MissionObjectiveDeclaration a gate on the whole objective: every way to complete must also find it true; position-free, as on a trigger
 ---@field RevealedWhen fun(condition: MissionCondition): MissionObjectiveDeclaration replace the default reveal cadence with the mission's own moment
 ---@field Foreshadow fun(): MissionObjectiveDeclaration draw the line greyed-out before its reveal
 ---@field IsComplete fun(): MissionCondition
@@ -80,7 +80,8 @@
 ---@class MissionObjectiveDeclarationEntry
 ---@field id string
 ---@field title string
----@field completions MissionCondition[][] disjuncts (one per CompletedWhen), each AND-composed into its own derived trigger; empty = a standing objective, transparent to the reveal cadence
+---@field completions MissionCondition[][] disjuncts (one per CompletedWhen), each compiling to its own derived trigger; empty = a standing objective, transparent to the reveal cadence
+---@field gates MissionCondition[] the When conditions, ANDed onto every disjunct
 ---@field revealedWhen MissionCondition|nil set by RevealedWhen
 ---@field revealAtArm boolean|nil marked by the loader: no declared moment, no completable predecessor
 ---@field foreshadow boolean

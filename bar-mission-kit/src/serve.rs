@@ -693,6 +693,7 @@ pub fn apply_edit_journaled(
         ));
     }
     let new_text = match_line_endings(&source, &intent.new_text);
+    let (start, new_text) = ensure_imports(missions_dir, &intent.file, &source, start, new_text);
     let mut edited = String::with_capacity(source.len() + new_text.len());
     edited.push_str(&source[..start]);
     edited.push_str(&new_text);
@@ -740,6 +741,60 @@ pub fn apply_edit_journaled(
         },
     );
     Ok((start, end))
+}
+
+/// A palette row writes the mission's own handles by their conventional
+/// alias (`Units.hub`, `Objectives.relieve`). If the file already includes
+/// that definition file under another name, the row speaks that name; if it
+/// does not include it at all, the include line is added at the top — the
+/// line an author would have typed next. Returns the (possibly widened to 0)
+/// start and the text to put there.
+fn ensure_imports(
+    missions_dir: &Path,
+    file: &str,
+    source: &str,
+    start: usize,
+    new_text: String,
+) -> (usize, String) {
+    let mut start = start;
+    let mut new_text = new_text;
+    let Some(mission) = file.split(['/', '\\']).next() else {
+        return (start, new_text);
+    };
+    let own = file.rsplit(['/', '\\']).next().unwrap_or("");
+    for (alias, def) in [
+        ("Units", "units.lua"),
+        ("Objectives", "objectives.lua"),
+        ("Variables", "variables.lua"),
+    ] {
+        if !new_text.contains(&format!("{alias}.")) || own == def {
+            continue;
+        }
+        let include = format!("VFS.Include(\"modules/missions/{mission}/{def}\")");
+        if let Some(at) = source.find(&include) {
+            // Included already, perhaps under another name: `local O = VFS.Include(...)`.
+            let line_start = source[..at].rfind('\n').map(|i| i + 1).unwrap_or(0);
+            let head = &source[line_start..at];
+            if let Some(name) = head
+                .trim()
+                .strip_prefix("local ")
+                .and_then(|rest| rest.split('=').next())
+                .map(str::trim)
+            {
+                if !name.is_empty() && name != alias {
+                    new_text = new_text.replace(&format!("{alias}."), &format!("{name}."));
+                }
+            }
+            continue;
+        }
+        if !missions_dir.join(mission).join(def).exists() {
+            continue;
+        }
+        let prefix = format!("local {alias} = {include}\n");
+        new_text = format!("{prefix}{}{new_text}", &source[..start]);
+        start = 0;
+    }
+    (start, new_text)
 }
 
 fn file_stamp(path: &Path) -> String {
@@ -793,6 +848,55 @@ mod tests {
 
     fn apply_edit(missions_dir: &Path, intent: &EditIntent) -> Result<(), String> {
         apply_edit_journaled(missions_dir, intent, &mut EditJournal::default()).map(|_| ())
+    }
+
+    #[test]
+    fn a_handle_row_brings_its_include_line() {
+        let dir = tmpdir("include");
+        setup(&dir);
+        std::fs::write(
+            dir.join("hello/units.lua"),
+            "local hub = Spawn(UnitDef(\"corlab\"), \"gaia\").At(0.4, 0.4)\nreturn { hub = hub }\n",
+        )
+        .unwrap();
+        let source = std::fs::read_to_string(dir.join("hello/triggers/win.lua")).unwrap();
+        let at = source.find("\t.Do(").unwrap();
+        apply_edit(
+            &dir,
+            &EditIntent {
+                file: "hello/triggers/win.lua".into(),
+                start: at,
+                end: at,
+                new_text: "\t.When(Units.hub.IsDestroyed())\n".into(),
+                base_hash: None,
+            },
+        )
+        .unwrap();
+        let after = std::fs::read_to_string(dir.join("hello/triggers/win.lua")).unwrap();
+        assert!(
+            after.starts_with("local Units = VFS.Include(\"modules/missions/hello/units.lua\")\n"),
+            "{after}"
+        );
+        assert!(
+            after.contains("\t.When(Units.hub.IsDestroyed())\n"),
+            "{after}"
+        );
+        // The same row again: the include is there, nothing is added twice.
+        let source = std::fs::read_to_string(dir.join("hello/triggers/win.lua")).unwrap();
+        let at = source.find("\t.Do(").unwrap();
+        apply_edit(
+            &dir,
+            &EditIntent {
+                file: "hello/triggers/win.lua".into(),
+                start: at,
+                end: at,
+                new_text: "\t.When(Units.hub.IsSpotted(Team.Player))\n".into(),
+                base_hash: None,
+            },
+        )
+        .unwrap();
+        let after = std::fs::read_to_string(dir.join("hello/triggers/win.lua")).unwrap();
+        assert_eq!(after.matches("VFS.Include").count(), 1, "{after}");
     }
 
     fn setup(dir: &Path) {

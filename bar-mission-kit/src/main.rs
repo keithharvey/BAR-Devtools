@@ -323,9 +323,61 @@ pub fn collect_ast(paths: &[PathBuf], generation: u64) -> (model::MissionAst, Ve
             palette(overlay, types::TypeSurface::builtin(), &[]);
         }
     }
+    if let Some(overlay) = surface.as_object_mut() {
+        overlay.insert("handles".into(), handle_palette(&ast.files));
+    }
     ast.surface = surface;
     findings.extend(cross_check_names(&ast.files));
     (ast, findings)
+}
+
+/// The conventional alias for a definition file: what the palette writes and
+/// what serve imports when a row references a file the target has not included.
+pub(crate) fn alias_for(path: &str) -> Option<&'static str> {
+    let base = path.rsplit(['/', '\\']).next()?;
+    match base {
+        "units.lua" => Some("Units"),
+        "objectives.lua" => Some("Objectives"),
+        "variables.lua" => Some("Variables"),
+        _ => None,
+    }
+}
+
+/// This mission's own vocabulary: every exported handle, with the verbs its
+/// class offers, as palette rows — `Units.hub.IsDestroyed()`,
+/// `Objectives.relieve.Complete()`. Derived from the exports and the types;
+/// nothing here knows what kinds of handle exist.
+fn handle_palette(files: &[model::FileAst]) -> serde_json::Value {
+    let mut conditions = Vec::new();
+    let mut effects = Vec::new();
+    for file in files {
+        if !recognizer::is_definition_site(&file.path, "units.lua")
+            && !recognizer::is_definition_site(&file.path, "objectives.lua")
+            && !recognizer::is_definition_site(&file.path, "variables.lua")
+        {
+            continue;
+        }
+        let Some(alias) = alias_for(&file.path) else {
+            continue;
+        };
+        let surface = types::TypeSurface::builtin();
+        for export in &file.exports {
+            let Some(class) = &export.class else {
+                continue;
+            };
+            for (verb, role, args) in surface.handle_verbs(class) {
+                let entry = serde_json::json!({
+                    "label": format!("{}.{} {}", alias, export.key, humanize(&verb).to_lowercase()),
+                    "template": format!("{alias}.{}.{verb}{args}", export.key),
+                });
+                match role {
+                    "condition" => conditions.push(entry),
+                    _ => effects.push(entry),
+                }
+            }
+        }
+    }
+    serde_json::json!({ "conditions": conditions, "effects": effects })
 }
 
 /// Cross-file noun check: every Unit()/Units reference must name something
@@ -390,14 +442,7 @@ fn cross_check_exports(files: &[model::FileAst]) -> Vec<model::Finding> {
             let Some(target) = files.iter().find(|f| tail(&f.path) == wanted) else {
                 continue; // a partial walk: nothing to check against
             };
-            let keys: Vec<&str> = target
-                .unit_exports
-                .iter()
-                .chain(target.objective_exports.iter())
-                .chain(target.group_exports.iter())
-                .chain(target.variable_exports.iter())
-                .map(|e| e.key.as_str())
-                .collect();
+            let keys: Vec<&str> = target.exports.iter().map(|e| e.key.as_str()).collect();
             if !keys.contains(&r.key.as_str()) {
                 findings.push(model::Finding {
                     path: file.path.clone(),
