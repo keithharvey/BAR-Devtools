@@ -68,6 +68,7 @@
 
 --- Declaration order gates reveal ONLY; completion gating stays explicit, via When.
 ---@class MissionObjectiveDeclaration
+---@field id string the objective's id, the wire identity
 ---@field Title fun(title: string): MissionObjectiveDeclaration display wording; defaults to the id with underscores as spaces
 ---@field CompletedWhen fun(condition: MissionCondition): MissionObjectiveDeclaration one way to complete; a second CompletedWhen is another way (OR), each compiling to its own trigger
 ---@field When fun(condition: MissionCondition): MissionObjectiveDeclaration a gate on the whole objective: every way to complete must also find it true; position-free, as on a trigger
