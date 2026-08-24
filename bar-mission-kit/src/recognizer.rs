@@ -5,12 +5,17 @@
 //! slot semantics come from parameter types. A top-level verb the types do
 //! not declare is a finding; expressions outside the literal subset stay the
 //! opaque exit hatch. Check mode is the same walk with findings.
+//!
+//! The subset is real Lua: a `local` may bind any value the grammar admits,
+//! anywhere in the file, and a later reference to it reads as the value it
+//! names — `local pawn = UnitDef("armpw")` then `Spawn(pawn, ...)`. What stays
+//! out is control flow and function bodies, not statement placement.
 
 use crate::model::*;
 use crate::types::TypeSurface;
 use emmylua_parser::{
     LuaAstNode, LuaCallExpr, LuaChunk, LuaExpr, LuaIndexKey, LuaLiteralToken, LuaParser,
-    LuaStat, LuaTableExpr, ParserConfig,
+    LuaStat, LuaTableExpr, LuaVarExpr, ParserConfig,
 };
 use std::collections::BTreeMap;
 
@@ -108,6 +113,7 @@ pub fn recognize_file_with(
         opaque: Vec::new(),
         findings: Vec::new(),
         order: 0,
+        bindings: BTreeMap::new(),
     };
 
     let chunk: LuaChunk = tree.get_chunk_node();
@@ -191,6 +197,9 @@ struct Rec<'s> {
     opaque: Vec<Opaque>,
     findings: Vec<Finding>,
     order: usize,
+    /// Locals bound so far, in file order: name -> the value it names. A
+    /// reference to one reads as that value, spans pointing at the binding.
+    bindings: BTreeMap<String, Value>,
 }
 
 /// A verb expression unrolled from the nested call CST:
@@ -261,28 +270,51 @@ impl<'s> Rec<'s> {
                     _ => self.mark_opaque(span, "mode presets return exactly one Mode chain"),
                 }
             }
-            // Mode presets bind their vocabulary with an import preamble:
-            // `local X = VFS.Include(...)` and destructures of such locals.
-            // Plumbing, not content — tolerated, not modeled.
-            LuaStat::LocalStat(local) if self.kind == FileKind::ModePreset => {
-                let imports = local.get_value_exprs().all(|expr| match &expr {
-                    LuaExpr::CallExpr(call) => call
-                        .get_prefix_expr()
-                        .and_then(|p| match p {
-                            LuaExpr::IndexExpr(_) | LuaExpr::NameExpr(_) => Some(()),
-                            _ => None,
-                        })
-                        .is_some(),
-                    LuaExpr::IndexExpr(_) | LuaExpr::NameExpr(_) => true,
-                    _ => false,
-                });
-                if !imports {
-                    self.mark_opaque(span, "mode preset locals may only import vocabulary");
+            // A local binds a name to a value of the subset; the reference
+            // later reads as that value. Presets bind their vocabulary this
+            // way (`local X = VFS.Include(...)`, then destructures) — the same
+            // rule, nothing special-cased.
+            LuaStat::LocalStat(local) => {
+                let names: Vec<String> = local
+                    .get_local_name_list()
+                    .filter_map(|n| n.get_name_token().map(|t| t.get_name_text().to_string()))
+                    .collect();
+                let values: Vec<LuaExpr> = local.get_value_exprs().collect();
+                for (i, name) in names.into_iter().enumerate() {
+                    match values.get(i) {
+                        Some(expr) => {
+                            let value = self.value(expr);
+                            self.bindings.insert(name, value);
+                        }
+                        None => self.finding(span, format!("local '{name}' binds no value")),
+                    }
+                }
+            }
+            // Rebinding a local is still the subset; assigning anything else
+            // reaches outside the sandbox.
+            LuaStat::AssignStat(assign) => {
+                let (vars, exprs) = assign.get_var_and_expr_list();
+                for (i, var) in vars.into_iter().enumerate() {
+                    let name = match &var {
+                        LuaVarExpr::NameExpr(name) => name.get_name_text(),
+                        LuaVarExpr::IndexExpr(_) => None,
+                    };
+                    match (name, exprs.get(i)) {
+                        (Some(name), Some(expr)) if self.bindings.contains_key(&name) => {
+                            let value = self.value(expr);
+                            self.bindings.insert(name, value);
+                        }
+                        (Some(name), _) => self.mark_opaque(
+                            span,
+                            &format!("assignment to '{name}', which no local declared — the sandbox has no globals to set"),
+                        ),
+                        (None, _) => self.mark_opaque(span, "indexed assignment outside the mission subset"),
+                    }
                 }
             }
             _ => {
                 let message = format!(
-                    "mission files contain only verb chains ({}) — closure-free surface",
+                    "mission files are verb chains ({}) and the locals that name their values — no control flow, no function bodies",
                     self.head_list()
                 );
                 self.mark_opaque(span, &message);
@@ -474,6 +506,9 @@ impl<'s> Rec<'s> {
                 if unrolled.pending.is_some() {
                     return self.opaque_value(span, "dangling index after a call");
                 }
+                if let Some(bound) = self.bindings.get(&unrolled.path[0]).cloned() {
+                    return self.through_binding(bound, unrolled, span);
+                }
                 let path = unrolled.path.join(".");
                 if unrolled.calls.is_empty() {
                     Value::Name { path, span }
@@ -503,6 +538,55 @@ impl<'s> Rec<'s> {
                 }
             }
             _ => self.opaque_value(span, "expression outside the mission subset"),
+        }
+    }
+
+    /// A reference whose base is a bound local reads as the bound value,
+    /// with whatever the reference chains onto it: `pawn` is the UnitDef,
+    /// `obj.IsComplete()` is the objective's chain continued.
+    fn through_binding(&mut self, bound: Value, unrolled: Unrolled, span: Span) -> Value {
+        let rest = &unrolled.path[1..];
+        let mut calls = unrolled.calls;
+        match bound {
+            Value::Verb { path, calls: mut bound_calls, span: bound_span } => {
+                // `alias.Verb(...)` unrolls as path [alias, Verb] + an unnamed
+                // call: the segment names the invocation on the bound chain.
+                if rest.len() == 1 && calls.first().map(|c| c.name.is_none()).unwrap_or(false) {
+                    calls[0].name = Some(rest[0].clone());
+                    bound_calls.extend(calls);
+                    return Value::Verb { path, calls: bound_calls, span: bound_span };
+                }
+                if rest.is_empty() && calls.is_empty() {
+                    return Value::Verb { path, calls: bound_calls, span: bound_span };
+                }
+                if calls.is_empty() {
+                    // A field off a bound call — a preset's `ModeDSL.Mode` off
+                    // `VFS.Include(...)` — is a reference by the alias's own
+                    // name; the surface resolves it or leaves it unstamped.
+                    return Value::Name { path: unrolled.path.join("."), span };
+                }
+                if rest.is_empty() {
+                    return self.opaque_value(span, "calling a bound value — chain a verb onto it instead");
+                }
+                self.opaque_value(span, "nested index into a bound value")
+            }
+            Value::Name { path, span: _ } => {
+                let mut full = vec![path];
+                full.extend(rest.iter().cloned());
+                let path = full.join(".");
+                if calls.is_empty() {
+                    Value::Name { path, span }
+                } else {
+                    Value::Verb { path, calls, span }
+                }
+            }
+            literal @ (Value::String { .. } | Value::Number { .. } | Value::Boolean { .. } | Value::Table { .. }) => {
+                if !rest.is_empty() || !calls.is_empty() {
+                    return self.opaque_value(span, "a bound literal takes no index or call");
+                }
+                literal
+            }
+            Value::Opaque { reason, .. } => Value::Opaque { span, reason },
         }
     }
 
@@ -728,4 +812,63 @@ pub fn fnv1a(bytes: &[u8]) -> String {
 fn node_span<N: LuaAstNode>(node: &N) -> Span {
     let range = node.get_range();
     (usize::from(range.start()), usize::from(range.end()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn findings(r: &Recognized) -> Vec<String> {
+        r.findings.iter().map(|f| f.message.clone()).collect()
+    }
+
+    #[test]
+    fn a_local_unit_def_reads_as_the_unit_def_it_names() {
+        let src = "local pawn = UnitDef(\"armpw\")\nSpawn(pawn, \"player\").At(0.5, 0.5).Named(\"scout\")\n";
+        let r = recognize_file("t/units.lua", src).unwrap();
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let step = &r.file.groups[0].triggers[0].steps[0];
+        match &step.args[0] {
+            Value::Verb { path, calls, .. } => {
+                assert_eq!(path, "UnitDef");
+                assert!(matches!(&calls[0].args[0], Value::String { value, semantic: Some(s), .. } if value == "armpw" && s == "unit_def_name"));
+            }
+            other => panic!("expected the bound UnitDef, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_local_objective_chains_on_where_it_is_used() {
+        let src = "local found = Objective(\"find_the_enclave\")\nWhen(found.IsComplete()).Do(found.Reveal())\n";
+        let r = recognize_file("t/triggers/a.lua", src).unwrap();
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let when = &r.file.groups[0].triggers[0].steps[0];
+        match &when.args[0] {
+            Value::Verb { path, calls, .. } => {
+                assert_eq!(path, "Objective");
+                assert_eq!(calls.len(), 2);
+                assert_eq!(calls[1].name.as_deref(), Some("IsComplete"));
+            }
+            other => panic!("expected the objective chain, got {other:?}"),
+        }
+        assert_eq!(r.file.objective_refs.len(), 2, "both uses of the alias are references");
+    }
+
+    #[test]
+    fn locals_may_sit_anywhere_and_rebind() {
+        let src = "When(Team.Player.Has(UnitDef(\"armpw\"), 1)).Do(Objective(\"a\").Complete())\nlocal n = 3\nn = 4\nWhen(Team.Player.Has(UnitDef(\"armpw\"), n)).Do(Objective(\"b\").Complete())\n";
+        let r = recognize_file("t/triggers/a.lua", src).unwrap();
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let second = &r.file.groups[0].triggers[1].steps[0];
+        let Value::Verb { calls, .. } = &second.args[0] else { panic!() };
+        assert!(matches!(&calls[0].args[1], Value::Number { value, .. } if *value == 4.0));
+    }
+
+    #[test]
+    fn control_flow_and_unknown_globals_stay_out() {
+        let src = "if true then end\nx = 1\n";
+        let r = recognize_file("t/triggers/a.lua", src).unwrap();
+        assert_eq!(r.file.opaque.len(), 2);
+        assert!(findings(&r)[1].contains("no local declared"));
+    }
 }

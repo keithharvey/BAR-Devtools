@@ -599,7 +599,7 @@ When(Region("north").EnteredBy(Team.Player, { count = 5 }))
 
     #[test]
     fn non_chain_statements_are_findings() {
-        let src = "local x = 1\n";
+        let src = "if true then end\n";
         let rec = crate::recognizer::recognize_file("triggers/bad.lua", src).unwrap();
         assert_eq!(rec.findings.len(), 1);
         assert_eq!(rec.file.opaque.len(), 1);
@@ -739,15 +739,21 @@ When(C()).Do(E())
             Value::String { value, .. } => assert!(value.contains("-1")),
             other => panic!("expected desc string, got {other:?}"),
         }
-        // a real (non-import) local is still outside the surface
+        // locals are real Lua and may bind anything the subset admits; control
+        // flow is what stays outside the surface
         std::fs::write(
             dir.join("modes/bad.lua"),
-            "local x = 1\nreturn Mode(\"Bad\").Desc(\"x\")\n",
+            "local x = \"x\"\nif x then end\nreturn Mode(\"Bad\").Desc(x)\n",
         )
         .unwrap();
-        let (_ast, findings) = crate::collect_ast(&[dir.clone()], 2);
-        assert!(findings.iter().any(|f| f.message.contains("import")), "{:?}",
-            findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        let (ast, findings) = crate::collect_ast(&[dir.clone()], 2);
+        assert_eq!(findings.len(), 1, "{:?}", findings.iter().map(|f| &f.message).collect::<Vec<_>>());
+        assert!(findings[0].message.contains("no control flow"));
+        let bad = ast.files.iter().find(|f| f.path.ends_with("bad.lua")).unwrap();
+        match &bad.groups[0].triggers[0].steps[1].args[0] {
+            Value::String { value, .. } => assert_eq!(value, "x"),
+            other => panic!("the bound local reads as its string, got {other:?}"),
+        }
         std::fs::remove_dir_all(&dir).ok();
     }
 

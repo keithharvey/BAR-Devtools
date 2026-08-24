@@ -97,7 +97,7 @@ pub struct Step {
 }
 
 /// An argument node. `kind` discriminates for JSON consumers.
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Value {
     Number {
@@ -145,7 +145,7 @@ pub enum Value {
     },
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Invocation {
     /// None for the initial call on the path; Some("Complete") for `.Complete(...)`.
     pub name: Option<String>,
@@ -153,7 +153,7 @@ pub struct Invocation {
     pub span: Span,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Field {
     /// Named keys only in the subset (`{ count = 5 }`); positional entries
     /// get "1", "2", ...
@@ -161,7 +161,7 @@ pub struct Field {
     pub value: Value,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 pub struct Opaque {
     pub span: Span,
     pub reason: String,
