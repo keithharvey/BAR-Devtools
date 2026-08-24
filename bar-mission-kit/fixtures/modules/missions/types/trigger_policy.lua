@@ -42,6 +42,9 @@ function Claim(unitDef, team) end
 ---@type { Player: MissionTeam }
 Team = {}
 
+---@type MissionMatchFlow
+MatchFlow = {}
+
 ---A group as a value. units.lua sandbox only — export it and hand it to
 ---Grouped and Transfer.* instead of spelling the name again.
 ---@param name MissionUnitGroup

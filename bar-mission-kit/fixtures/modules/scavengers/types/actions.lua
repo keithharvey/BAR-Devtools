@@ -1,9 +1,9 @@
 ---@meta actions
 
 ---@class ScavengerPacks
----@field Skirmish WavePackRef
----@field Assault WavePackRef
----@field Horde WavePackRef
+---@field Skirmish MissionWavePack
+---@field Assault MissionWavePack
+---@field Horde MissionWavePack
 
 ---@type ScavengerPacks
 Scavengers = {}

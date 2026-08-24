@@ -94,7 +94,20 @@ impl TypeSurface {
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn builtin() -> &'static TypeSurface {
         static BUILTIN: std::sync::OnceLock<TypeSurface> = std::sync::OnceLock::new();
-        BUILTIN.get_or_init(|| TypeSurface::parse(SNAPSHOTS))
+        BUILTIN.get_or_init(|| TypeSurface::snapshot("trigger"))
+    }
+
+    /// The built-in snapshot for one policy language: the actions every
+    /// language reads plus that language's own metas. Merging every policy
+    /// into one surface let a mode grammar's `Scavengers.Skirmish` (an
+    /// opaque noun there) shadow the trigger grammar's pack handle.
+    pub fn snapshot(policy: Policy) -> TypeSurface {
+        let sources: Vec<&str> = SNAPSHOTS
+            .iter()
+            .copied()
+            .filter(|source| publishes_into(source, policy))
+            .collect();
+        TypeSurface::parse(&sources)
     }
 
     /// Load the game's annotation files by walking ancestors of the given
@@ -148,7 +161,7 @@ impl TypeSurface {
                 return TypeSurface::parse(&refs);
             }
         }
-        TypeSurface::parse(SNAPSHOTS)
+        TypeSurface::snapshot(policy)
     }
 
     /// The nearest ancestor types/ dir containing surface-marked files —
@@ -448,11 +461,26 @@ impl TypeSurface {
                             continue;
                         }
                     }
-                    // Field lookup in the current class ends the path.
+                    // A callable field ends the path; a class-typed field
+                    // (`Skirmish: MissionWavePack` on the packs object) is a
+                    // noun the path walks through to that class's verbs.
                     let class = current_class.as_deref()?;
-                    return self.classes.get(class)?.get(segment).cloned();
+                    if let Some(sig) = self.classes.get(class)?.get(segment) {
+                        return Some(sig.clone());
+                    }
+                    let ty = self.class_typed_fields.get(class)?.get(segment)?;
+                    if !self.classes.contains_key(ty) {
+                        return None;
+                    }
+                    current_class = Some(ty.clone());
                 }
-                None
+                // The path stops at a noun (`Scavengers.Skirmish`, held in a
+                // local): the verb comes as a call chained onto it, and the
+                // noun's class is what that call resolves against.
+                current_class.map(|class| FnSig {
+                    params: Vec::new(),
+                    ret: Some(class),
+                })
             }
         }
     }
@@ -470,7 +498,8 @@ impl TypeSurface {
             roles.nouns.push(prefix.to_string());
             return;
         };
-        if fields.is_empty() {
+        let typed_fields = self.class_typed_fields.get(class);
+        if fields.is_empty() && typed_fields.map_or(true, |m| m.is_empty()) {
             roles.nouns.push(prefix.to_string());
             return;
         }
@@ -490,7 +519,7 @@ impl TypeSurface {
         // Fields typed with a class that is NOT callable: an action's mode
         // facet, which a grant is written against. Dropping them would lose
         // half of what a single declaration says.
-        for (field, ty) in self.class_typed_fields.get(class).into_iter().flatten() {
+        for (field, ty) in typed_fields.into_iter().flatten() {
             if fields.contains_key(field) {
                 continue; // already reported through its call signature
             }
@@ -697,6 +726,18 @@ impl TypeSurface {
             }
         };
         for segment in segments {
+            // A class-typed field is a noun on the way to its verbs, exactly
+            // as resolve_path walks it.
+            if !self.classes.get(&class)?.contains_key(segment) {
+                let ty = self.class_typed_fields.get(&class)?.get(segment)?;
+                if !self.classes.contains_key(ty) {
+                    return None;
+                }
+                out.push('.');
+                out.push_str(segment);
+                class = ty.clone();
+                continue;
+            }
             let sig = self.classes.get(&class)?.get(segment)?;
             out.push('.');
             out.push_str(segment);
@@ -1325,5 +1366,43 @@ Policies.Pipeline()
         assert_eq!(alias_slug("MissionUnitName"), "unit_name");
         assert_eq!(alias_slug("UnitDefName"), "unit_def_name");
         assert_eq!(alias_slug("MissionTeamRole"), "team_role");
+    }
+
+    #[test]
+    fn a_pack_noun_walks_to_the_director_verbs() {
+        let surface = TypeSurface::builtin();
+        // Scavengers.Skirmish is a class-typed field of the packs object, not
+        // a call: the path walks through it to the wave verbs, and stops at
+        // the noun itself when a local holds the pack.
+        let cleared = surface.resolve_path("Scavengers.Skirmish.Cleared").unwrap();
+        assert_eq!(cleared.params[0].0, "count");
+        assert_eq!(cleared.ret.as_deref(), Some("MissionCondition"));
+        let noun = surface.resolve_path("Scavengers.Skirmish").unwrap();
+        assert_eq!(noun.ret.as_deref(), Some("MissionWavePack"));
+        assert!(noun.params.is_empty());
+        let roles = surface.roles();
+        assert!(
+            roles
+                .effects
+                .iter()
+                .any(|e| e == "Scavengers.Skirmish.Intensify"),
+            "{:?}",
+            roles.effects
+        );
+        assert!(
+            roles
+                .conditions
+                .iter()
+                .any(|c| c == "Scavengers.Horde.BossDefeated"),
+            "{:?}",
+            roles.conditions
+        );
+        let template = surface
+            .template_for("Scavengers.Skirmish.Intensify")
+            .unwrap();
+        assert!(
+            template.starts_with("Scavengers.Skirmish.Intensify("),
+            "{template}"
+        );
     }
 }

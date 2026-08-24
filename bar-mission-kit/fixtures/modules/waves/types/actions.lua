@@ -22,35 +22,14 @@
 ---@field From fun(fx: number, fz: number): MissionWavesChain
 ---@field Intensity fun(intensity: WaveIntensity): MissionWavesChain
 
----@class WavesBegin
----@overload fun(pack: WavePackRef): MissionWavesChain
-
----@class WavesIntensify
----@overload fun(pack: WavePackRef, intensity: WaveIntensity): MissionEffect
-
----@class WavesSurge
----@overload fun(pack: WavePackRef): MissionEffect
-
----@class WavesEnd
----@overload fun(pack: WavePackRef): MissionEffect
-
----@class WavesSpawned
----@overload fun(pack: WavePackRef, count: integer?): MissionCondition
-
----@class WavesCleared
----@overload fun(pack: WavePackRef, count: integer?): MissionCondition
-
----@class WavesBossDefeated
----@overload fun(pack: WavePackRef, count: integer?): MissionCondition
-
----@class WavesActions
----@field Begin WavesBegin
----@field Intensify WavesIntensify
----@field Surge WavesSurge
----@field End WavesEnd
----@field Spawned WavesSpawned
----@field Cleared WavesCleared
----@field BossDefeated WavesBossDefeated
-
----@type WavesActions
-Waves = {}
+--- The pack is the subject: `pressure.Begin().Against(Team.Player)`, not
+--- `Waves.Begin(pressure)`. A flavor module publishes its packs as this
+--- class, and the verbs on it are the director's.
+---@class MissionWavePack : WavePackRef
+---@field Begin fun(): MissionWavesChain
+---@field Intensify fun(intensity: WaveIntensity): MissionEffect
+---@field Surge fun(): MissionEffect
+---@field End fun(): MissionEffect
+---@field Spawned fun(count: integer?): MissionCondition
+---@field Cleared fun(count: integer?): MissionCondition
+---@field BossDefeated fun(count: integer?): MissionCondition

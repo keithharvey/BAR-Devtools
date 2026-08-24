@@ -1305,7 +1305,49 @@ fn step_phrase_for(verb: &str) -> Option<&'static str> {
     }
 }
 
+/// The wave verbs ride the pack handle a flavor module publishes
+/// (`Scavengers.Skirmish.Begin`, or `pressure.Begin` through a local), so
+/// the key names the pack first and the director's verb third. The sentences
+/// are the director's, whichever pack: fold the pack away.
+const WAVE_VERBS: [&str; 7] = [
+    "Begin",
+    "Intensify",
+    "Surge",
+    "End",
+    "Spawned",
+    "Cleared",
+    "BossDefeated",
+];
+
+fn wave_key(key: &str) -> Option<String> {
+    let segments: Vec<&str> = key.split('.').collect();
+    match segments.as_slice() {
+        [_, _, verb, rest @ ..] if WAVE_VERBS.contains(verb) => {
+            let mut out = format!("Waves.{verb}");
+            for r in rest {
+                out.push('.');
+                out.push_str(r);
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// The name a director publishes under, from the pack the key names:
+/// `Scavengers.Skirmish.Cleared` -> `scavengers.skirmish`. A mission names
+/// a pack and never learns a flavor's rulesparam prefix.
+fn wave_pack_of(key: &str) -> Option<String> {
+    let segments: Vec<&str> = key.split('.').collect();
+    match segments.as_slice() {
+        [flavor, pack, ..] => Some(format!("{flavor}.{pack}").to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
 fn phrase_for(key: &str) -> Option<&'static str> {
+    let folded = wave_key(key);
+    let key = folded.as_deref().unwrap_or(key);
     match key {
         "Team.Player.Has" => Some("Player has {count} {unit_def_name}"),
         "Objective.IsComplete" => Some("objective {objective_name} is complete"),
@@ -1331,12 +1373,11 @@ fn phrase_for(key: &str) -> Option<&'static str> {
         // {until} is not a literal slot: it renders the Until argument's own
         // sentence (see slot_view).
         "Combat.Protect.Until" => Some("protect {unit_name} until {until}"),
-        // Waves. The pack is a noun path (Scavengers.Skirmish), and a noun
-        // cannot fill a slot — same limitation Transfer.Units documents above
-        // — so these sentences say "the waves" and let the DO row's own
-        // module attribution carry which flavor it is. Begin's key depends on
-        // which dial came last, because the chain is order-free, so every
-        // ending gets the same sentence.
+        // Waves. The pack is the subject and cannot fill a slot — same
+        // limitation Transfer.Units documents above — so these sentences say
+        // "the waves" and let the DO row's own module attribution carry which
+        // flavor it is. Begin's key depends on which dial came last, because
+        // the chain is order-free, so every ending gets the same sentence.
         "Waves.Begin" | "Waves.Begin.Against" | "Waves.Begin.From" | "Waves.Begin.Intensity" => {
             Some("send waves at the player")
         }
@@ -1407,7 +1448,9 @@ fn step_live(step: &Step, ctx: &Ctx) -> Element {
     rsx! {}
 }
 
-fn probe_for(phrase_key: &str, value: &Value) -> Option<LiveProbe> {
+fn probe_for(raw_key: &str, value: &Value) -> Option<LiveProbe> {
+    let folded = wave_key(raw_key);
+    let phrase_key = folded.as_deref().unwrap_or(raw_key);
     match phrase_key {
         "Team.Player.Has" => {
             let unit = find_semantic_leaf(value, "unit_def_name");
@@ -1466,12 +1509,10 @@ fn probe_for(phrase_key: &str, value: &Value) -> Option<LiveProbe> {
                 _ => None,
             }
         }
-        // Wave conditions are all counters against one director. The pack is
-        // a bare reference (`Scavengers.Skirmish`), and lowercasing it gives
-        // the name the director publishes its counters under — a mission
-        // names a pack and never learns a flavor's rulesparam prefix.
+        // Wave conditions are all counters against one director, the one
+        // the key's pack names.
         "Waves.Spawned" | "Waves.Cleared" | "Waves.BossDefeated" => {
-            let pack = find_name_ref(value)?.to_ascii_lowercase();
+            let pack = wave_pack_of(raw_key)?;
             let kind = match phrase_key {
                 "Waves.Spawned" => "waves_spawned",
                 "Waves.Cleared" => "waves_cleared",
@@ -1590,20 +1631,6 @@ fn slot_view(value: &Value, semantic: &str, ctx: &Ctx) -> Element {
     }
     let missing = format!("{{{semantic}}}");
     rsx! { "{missing}" }
-}
-
-/// The first bare dotted reference among a verb's arguments — the shape a
-/// noun contributed by another module takes (`Scavengers.Skirmish`).
-fn find_name_ref(value: &Value) -> Option<&str> {
-    match value {
-        Value::Name { path, .. } => Some(path.as_str()),
-        Value::Verb { calls, .. } => calls
-            .iter()
-            .flat_map(|c| c.args.iter())
-            .find_map(find_name_ref),
-        Value::Table { fields, .. } => fields.iter().find_map(|f| find_name_ref(&f.value)),
-        _ => None,
-    }
 }
 
 fn find_semantic_leaf<'a>(value: &'a Value, semantic: &str) -> Option<&'a Value> {
@@ -2148,7 +2175,7 @@ When(Objective("build_pawns").IsComplete())
         let x = |name: &str| {
             placed
                 .iter()
-                .find(|(x, _, n)| n == name)
+                .find(|(_, _, n)| n == name)
                 .map(|(x2, _, _)| *x2)
                 .unwrap()
         };
@@ -2348,16 +2375,17 @@ When(Objective("relieve_the_outpost").IsComplete())
 	.Do(Objective("find_the_enclave").Complete())
 "#;
 
-    // CM8's pressure file: the pack is a bare reference contributed by another
-    // module, which is the shape the wave probes have to read.
+    // CM8's pressure file: the pack is a handle contributed by another module,
+    // held in a local, which is the shape the wave phrases and probes read.
     const CM8_WAVES: &str = r#"
+local pressure = Scavengers.Skirmish
 When(MatchFlow.Started())
-	.Do(Waves.Begin(Scavengers.Skirmish).Against(Team.Player).From(0.85, 0.15).Intensity(0.3))
+	.Do(pressure.Begin().Against(Team.Player).From(0.85, 0.15).Intensity(0.3))
 
-When(Waves.Cleared(Scavengers.Skirmish, 3))
+When(pressure.Cleared(3))
 	.Do(Objective("held_the_line").Complete())
 
-When(Waves.BossDefeated(Scavengers.Horde))
+When(Scavengers.Horde.BossDefeated())
 	.Do(MatchFlow.Victory(Team.Player))
 "#;
 
@@ -2533,9 +2561,10 @@ When(Waves.BossDefeated(Scavengers.Horde))
         let view = render(&ast, &domains(), &Scope::default());
         assert_wellformed(&view.form);
 
-        // The pack is written `Scavengers.Skirmish`; the director publishes
-        // under `scavengers.skirmish`, and the probe has to bridge the two —
-        // a mission never learns a flavor's rulesparam prefix.
+        // The pack is written `Scavengers.Skirmish` (through a local here);
+        // the director publishes under `scavengers.skirmish`, and the probe
+        // has to bridge the two — a mission never learns a flavor's
+        // rulesparam prefix.
         let cleared = view
             .live
             .iter()
@@ -2637,9 +2666,9 @@ When(Waves.BossDefeated(Scavengers.Horde))
         // its presence here means a phrase key stopped matching. That is how
         // this shipped once: the chain is order-free, so Begin's key is
         // whichever dial came last.
-        assert!(!view.form.contains("Waves.Begin("), "{}", view.form);
-        assert!(!view.form.contains("Waves.Surge("), "{}", view.form);
-        assert!(!view.form.contains("Waves.End("), "{}", view.form);
+        assert!(!view.form.contains(".Begin("), "{}", view.form);
+        assert!(!view.form.contains(".Surge("), "{}", view.form);
+        assert!(!view.form.contains(".End("), "{}", view.form);
     }
 
     #[test]
