@@ -206,7 +206,16 @@ impl TypeSurface {
                 let (tag, rest) = split_word(rest);
                 match tag {
                     "class" => {
-                        let (name, _) = split_word(rest);
+                        // `---@class (partial) Name`: an attribute before the
+                        // name, the LuaCATS way to extend a class declared
+                        // elsewhere — a module adding its fields to
+                        // MissionContext. The attribute is not the name.
+                        let (first, after) = split_word(rest);
+                        let (name, _) = if first.starts_with('(') {
+                            split_word(after)
+                        } else {
+                            (first, after)
+                        };
                         current_class = Some(name.to_string());
                         current_alias = None;
                         self.classes.entry(name.to_string()).or_default();
@@ -1442,5 +1451,19 @@ Policies.Pipeline()
             template.starts_with("Scavengers.Skirmish.Intensify("),
             "{template}"
         );
+    }
+
+    #[test]
+    fn a_partial_class_extends_the_one_declared_elsewhere() {
+        let surface = TypeSurface::parse(&[
+            "---@meta actions\n---@class MissionContext\n---@field frame integer\n",
+            "---@meta actions\n---@class (partial) MissionContext\n---@field Protect fun(name: string)\n",
+        ]);
+        assert!(surface
+            .classes
+            .get("MissionContext")
+            .unwrap()
+            .contains_key("Protect"));
+        assert!(!surface.classes.contains_key("(partial)"));
     }
 }
