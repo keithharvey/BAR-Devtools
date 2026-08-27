@@ -14,23 +14,9 @@ use std::collections::BTreeMap;
 /// The game's published DSL types, one file per module exactly as the game
 /// ships them — never merged. A merged copy hid a rename once: two modules'
 /// vocabulary fused into one file cannot be diffed against either module.
-/// `just bar::sync-kit-fixtures --check` fails when these drift.
-pub const SNAPSHOTS: &[&str] = &[
-    include_str!("../fixtures/modules/missions/types/missions.lua"),
-    include_str!("../fixtures/modules/missions/types/mode_policy.lua"),
-    include_str!("../fixtures/modules/missions/types/trigger_policy.lua"),
-    include_str!("../fixtures/modules/combat/types/actions.lua"),
-    include_str!("../fixtures/modules/construction/types/actions.lua"),
-    include_str!("../fixtures/modules/matchflow/types/actions.lua"),
-    include_str!("../fixtures/modules/matchflow/types/mode_policy.lua"),
-    include_str!("../fixtures/modules/modes/types/mode_policy.lua"),
-    include_str!("../fixtures/modules/raptors/types/mode_policy.lua"),
-    include_str!("../fixtures/modules/scavengers/types/actions.lua"),
-    include_str!("../fixtures/modules/scavengers/types/mode_policy.lua"),
-    include_str!("../fixtures/modules/transfer/types/actions.lua"),
-    include_str!("../fixtures/modules/transfer/types/mode_policy.lua"),
-    include_str!("../fixtures/modules/waves/types/actions.lua"),
-];
+/// `just bar::sync-kit-fixtures --check` fails when these drift. The list is
+/// globbed by build.rs from fixtures/modules/*/types/*.lua.
+include!(concat!(env!("OUT_DIR"), "/snapshots.rs"));
 
 #[derive(Debug, Clone)]
 pub struct FnSig {
