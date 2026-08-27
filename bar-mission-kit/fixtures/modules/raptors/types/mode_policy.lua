@@ -28,5 +28,5 @@
 ---@return RaptorsModeChain
 function Mode(name) end
 
----@type { Swarm: RaptorsPackNoun }
+---@type { Skirmish: RaptorsPackNoun, Assault: RaptorsPackNoun, Swarm: RaptorsPackNoun }
 Raptors = {}
