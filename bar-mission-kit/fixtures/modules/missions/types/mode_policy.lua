@@ -10,6 +10,7 @@
 ---@field Hidden fun(): MissionModeChain
 ---@field Unlocked fun(): MissionModeChain
 ---@field Locked fun(): MissionModeChain
+---@field Sealed fun(): MissionModeChain pins the dials as well
 ---@field Own fun(noun: MatchflowModeNoun): MissionModeChain
 ---@field Loads fun(noun: MissionModeNoun): MissionModeChain
 ---@field Choose fun(noun: MissionModeNoun): MissionModeChain

@@ -14,19 +14,11 @@
 --- author is typing in; the DSL converts using the engine's own tick rate.
 ---@alias MissionSeconds number
 
---- A bus event: an engine callin the loader forwards, or an event a required
---- module registers through its contribution (`Events`). Open by type — an
---- alias cannot be extended from another module — and closed by the loader:
---- a trigger listening for a name nothing raises is a load error. Modules
---- speak their events through an enum table (missions/lib/events.lua), never
---- a string.
----@alias MissionEventName string
-
 --- inputs name bus events (nil = poll every cadence). Captures configuration,
 --- never progress (progress lives in engine state, the savegame rule).
 ---@class MissionCondition
 ---@field evaluate fun(ctx: MissionContext): boolean
----@field inputs MissionEventName[]|nil events that can change this answer; nil = poll every cadence
+---@field inputs string[]|nil events that can change this answer, each a member of a module's Events enum (missions/lib/events.lua, waves/lib/events.lua) or a forwarded callin; the loader refuses a name nothing raises. nil = poll every cadence
 
 --- Unit destroyed/spotted answers are latched: once true, stay true. A
 --- required module extends this class from its own types (`---@class
@@ -152,29 +144,23 @@
 ---@field fires table<string, integer> trigger id -> how many times it has fired
 ---@field lastFired table<string, integer> trigger id -> frame of its last fire
 
---- The manifest's requires list IS the vocabulary whitelist; a global collision
---- is a load error.
 ---@class MissionDslFile
 ---@field filename string mission-relative trigger file path
 ---@field Register fun(descriptor: TriggerDescriptor)
 ---@field names table<string, boolean> roster unit names, for load-time validation
 ---@field groups table<string, boolean> roster group names, for load-time validation
 
---- What the loader hands a contribution's Context: the roster and the
---- ledgers by function, never the tables, so a module reaches a unit by
---- roster name and a protection through the ledger that survives a reload.
+---@class MissionProtectionLedger this mission's protect refcounts, persisted across a reload
+---@field Get fun(unitID: integer): integer
+---@field Set fun(unitID: integer, count: integer) zero forgets the unit
+
 ---@class MissionRuntime
 ---@field UnitOf fun(name: string): integer|nil the living unit a roster name binds to
 ---@field GroupUnits fun(groupName: string): integer[]|nil
 ---@field ReleaseHoldFire fun(unitID: integer) a spawned-Neutral unit holds fire until whoever moves it says otherwise
----@field Protections { Get: fun(unitID: integer): integer, Set: fun(unitID: integer, count: integer) } this mission's protect refcounts, persisted
+---@field Protections MissionProtectionLedger
 ---@field Log fun(level: integer, message: string)
 
---- Vocabulary, context and events travel together: ForFile gives a file its
---- globals, Context gives every condition and effect the functions they act
---- through, Events names what the module raises on the bus. The loader
---- composes all three from the manifest's requires; a collision between two
---- modules is a load error.
 ---@class MissionDslContribution
 ---@field ForFile fun(file: MissionDslFile): { env: table<string, any>, Finalize: fun()|nil }
 ---@field Context fun(runtime: MissionRuntime): table<string, function>|nil

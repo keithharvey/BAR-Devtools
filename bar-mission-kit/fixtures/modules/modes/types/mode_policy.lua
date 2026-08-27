@@ -7,6 +7,7 @@
 ---@field Hidden fun(): GameModeChain
 ---@field Unlocked fun(): GameModeChain
 ---@field Locked fun(): GameModeChain
+---@field Sealed fun(): GameModeChain pins the dials as well
 ---@field End fun(deathmode: string): GameModeChain territorial_domination brings its round dials along
 ---@field Wreckage fun(enabled: boolean): GameModeChain
 ---@field ShuffleStartBoxes fun(enabled: boolean): GameModeChain

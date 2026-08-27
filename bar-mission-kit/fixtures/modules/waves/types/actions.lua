@@ -22,17 +22,11 @@
 ---@field module string the flavor module that can rebuild the spec
 ---@field pack string which builder inside it
 
---- It IS an effect, not merely effect-shaped: a Do takes the chain directly,
---- so every link returns something Do accepts and the statement reads as one
---- sentence however many dials it turns.
 ---@class MissionWavesChain : MissionEffect
 ---@field Against fun(team: MissionTeam): MissionWavesChain
 ---@field From fun(fx: number, fz: number): MissionWavesChain
 ---@field Intensity fun(intensity: WaveIntensity): MissionWavesChain
 
---- The pack is the subject: `pressure.Begin().Against(Team.Player)`, not
---- `Waves.Begin(pressure)`. A flavor module publishes its packs as this
---- class, and the verbs on it are the director's.
 ---@class MissionWavePack : WavePackRef
 ---@field Begin fun(): MissionWavesChain
 ---@field Intensify fun(intensity: WaveIntensity): MissionEffect

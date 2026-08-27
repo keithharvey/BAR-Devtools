@@ -8,6 +8,7 @@
 ---@field Hidden fun(): TransferModeChain
 ---@field Unlocked fun(): TransferModeChain
 ---@field Locked fun(): TransferModeChain
+---@field Sealed fun(): TransferModeChain pins the dials as well
 ---@field Allow fun(noun: TransferGrant): TransferModeChain
 ---@field Deny fun(noun: TransferGrant): TransferModeChain
 ---@field Tax fun(noun: TransferGrant, rate: number): TransferModeChain

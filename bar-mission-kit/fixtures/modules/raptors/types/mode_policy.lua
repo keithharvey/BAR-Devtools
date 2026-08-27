@@ -11,6 +11,7 @@
 ---@field Hidden fun(): RaptorsModeChain
 ---@field Unlocked fun(): RaptorsModeChain
 ---@field Locked fun(): RaptorsModeChain
+---@field Sealed fun(): RaptorsModeChain pins the dials as well
 ---@field Difficulty fun(pack: RaptorsPackNoun, difficulty: string): RaptorsModeChain
 ---@field Boss fun(pack: RaptorsPackNoun, count: integer, timeMultiplier: number?): RaptorsModeChain
 ---@field Grace fun(pack: RaptorsPackNoun, multiplier: number): RaptorsModeChain
