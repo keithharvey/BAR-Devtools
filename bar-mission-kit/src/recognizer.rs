@@ -1103,6 +1103,38 @@ mod tests {
     }
 
     #[test]
+    fn a_preset_keeps_its_lock_modifiers_on_the_verbs_line() {
+        // Presets are exempt from stylua so `.Ranked(false).Locked()` stays one
+        // line: the modifier binds to the verb before it. The comment is trivia
+        // and the joined links are the same chain.
+        let src = "local ModeDSL = VFS.Include(\"modules/raptors/mode_dsl.lua\") ---@type RaptorsModeDSL\nlocal Mode, Raptors = ModeDSL.Mode, ModeDSL.Raptors\n\n-- stylua: ignore\nreturn Mode(\"Raptors\")\n\t.Desc(\"Hold out.\")\n\t.Bot(\"RaptorsAI\")\n\t.Ranked(false).Locked()\n\t.Difficulty(Raptors.Swarm, \"normal\").Unlocked()\n\t.Boss(Raptors.Swarm, 1)\n";
+        // The module's own mode grammar, as load_near_policy composes it.
+        let surface = crate::types::TypeSurface::parse(&[include_str!(
+            "../fixtures/modules/raptors/types/mode_policy.lua"
+        )]);
+        let r = recognize_file_with("raptors/modes/raptors.lua", src, &surface).unwrap();
+        assert!(findings(&r).is_empty(), "{:?}", findings(&r));
+        let steps: Vec<&str> = r.file.groups[0].triggers[0]
+            .steps
+            .iter()
+            .map(|s| s.verb.as_str())
+            .collect();
+        assert_eq!(
+            steps,
+            vec![
+                "Mode",
+                "Desc",
+                "Bot",
+                "Ranked",
+                "Locked",
+                "Difficulty",
+                "Unlocked",
+                "Boss"
+            ]
+        );
+    }
+
+    #[test]
     fn a_local_unit_def_reads_as_the_unit_def_it_names() {
         let src = "local pawn = UnitDef(\"armpw\")\nSpawn(pawn, \"player\").At(0.5, 0.5).Named(\"scout\")\n";
         let r = recognize_file("t/units.lua", src).unwrap();
