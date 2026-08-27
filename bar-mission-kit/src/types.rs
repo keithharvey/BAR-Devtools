@@ -11,11 +11,11 @@
 
 use std::collections::BTreeMap;
 
-/// The game's published DSL types, one file per module exactly as the game
-/// ships them — never merged. A merged copy hid a rename once: two modules'
-/// vocabulary fused into one file cannot be diffed against either module.
-/// `just bar::sync-kit-fixtures --check` fails when these drift. The list is
-/// globbed by build.rs from fixtures/modules/*/types/*.lua.
+// The game's published DSL types, one file per module exactly as the game
+// ships them — never merged. A merged copy hid a rename once: two modules'
+// vocabulary fused into one file cannot be diffed against either module.
+// `just bar::sync-kit-fixtures --check` fails when these drift. The list is
+// globbed by build.rs from fixtures/modules/*/types/*.lua.
 include!(concat!(env!("OUT_DIR"), "/snapshots.rs"));
 
 #[derive(Debug, Clone)]
@@ -313,7 +313,22 @@ impl TypeSurface {
                         // clobber: both grammars belong to the same name.
                         let members = parse_object_type(&type_expr);
                         match self.globals.get_mut(name) {
-                            Some(Global::Object(existing)) => existing.extend(members),
+                            Some(Global::Object(existing)) => {
+                                // Two files may type the same global — matchflow's
+                                // actions and the trigger policy both say MatchFlow.
+                                // Neither wins: the global carries both classes.
+                                for (key, class) in members {
+                                    match existing.get(&key) {
+                                        Some(current) if key.is_empty() && current != &class => {
+                                            let joined = format!("{current}|{class}");
+                                            existing.insert(key, joined);
+                                        }
+                                        _ => {
+                                            existing.insert(key, class);
+                                        }
+                                    }
+                                }
+                            }
                             _ => {
                                 self.globals
                                     .insert(name.to_string(), Global::Object(members));
@@ -328,15 +343,37 @@ impl TypeSurface {
         }
     }
 
+    /// The classes a (possibly union) class name stands for.
+    fn class_names(union: &str) -> impl Iterator<Item = &str> {
+        union.split('|').map(str::trim).filter(|c| !c.is_empty())
+    }
+
+    /// The first member of the union that is a declared class.
+    fn known_class(&self, union: &str) -> bool {
+        Self::class_names(union).any(|c| self.classes.contains_key(c))
+    }
+
+    /// A callable field, from whichever class of the union declares it.
+    fn class_field(&self, union: &str, field: &str) -> Option<&FnSig> {
+        Self::class_names(union).find_map(|c| self.classes.get(c)?.get(field))
+    }
+
+    /// A class-typed (non-callable) field, from whichever class of the union declares it.
+    fn class_typed_field(&self, union: &str, field: &str) -> Option<&String> {
+        Self::class_names(union).find_map(|c| self.class_typed_fields.get(c)?.get(field))
+    }
+
     /// A chain class: at least one field is a fun returning the class itself.
     /// These are the builder chains statements are made of. A handle may
     /// also carry reference verbs (a roster handle's IsSpotted returns a
     /// condition) — those do not make it any less the chain.
     pub fn is_chain_class(&self, name: &str) -> bool {
-        self.classes
-            .get(name)
-            .map(|fields| fields.values().any(|sig| sig.ret.as_deref() == Some(name)))
-            .unwrap_or(false)
+        Self::class_names(name).any(|c| {
+            self.classes
+                .get(c)
+                .map(|fields| fields.values().any(|sig| sig.ret.as_deref() == Some(c)))
+                .unwrap_or(false)
+        })
     }
 
     /// Statement heads: injected globals returning a chain class, mapped to
@@ -460,11 +497,11 @@ impl TypeSurface {
                     // (`Skirmish: MissionWavePack` on the packs object) is a
                     // noun the path walks through to that class's verbs.
                     let class = current_class.as_deref()?;
-                    if let Some(sig) = self.classes.get(class)?.get(segment) {
+                    if let Some(sig) = self.class_field(class, segment) {
                         return Some(sig.clone());
                     }
-                    let ty = self.class_typed_fields.get(class)?.get(segment)?;
-                    if !self.classes.contains_key(ty) {
+                    let ty = self.class_typed_field(class, segment)?;
+                    if !self.known_class(ty) {
                         return None;
                     }
                     current_class = Some(ty.clone());
@@ -504,7 +541,9 @@ impl TypeSurface {
     /// reader's.
     pub fn handle_verbs(&self, class: &str) -> Vec<(String, &'static str, String)> {
         let mut out = Vec::new();
-        for (field, sig) in self.classes.get(class).into_iter().flatten() {
+        for (field, sig) in
+            Self::class_names(class).flat_map(|c| self.classes.get(c).into_iter().flatten())
+        {
             if field == CALLABLE {
                 continue;
             }
@@ -521,7 +560,7 @@ impl TypeSurface {
     /// The signature of `.name(...)` chained after something returning
     /// `class` (or of `class`'s member for the first named call).
     pub fn member_sig(&self, class: &str, name: &str) -> Option<&FnSig> {
-        self.classes.get(class)?.get(name)
+        self.class_field(class, name)
     }
 
     /// Classify a class's callable fields by what they return, recording them
@@ -722,10 +761,12 @@ impl TypeSurface {
                     // grafted onto the same name (a merged declaration keeps
                     // both, so walk both).
                     for (member, class) in members {
-                        if member.is_empty() {
-                            self.walk_class(class, name, &mut roles);
-                        } else {
-                            self.walk_class(class, &format!("{name}.{member}"), &mut roles);
+                        for class in Self::class_names(class) {
+                            if member.is_empty() {
+                                self.walk_class(class, name, &mut roles);
+                            } else {
+                                self.walk_class(class, &format!("{name}.{member}"), &mut roles);
+                            }
                         }
                     }
                 }
@@ -761,9 +802,9 @@ impl TypeSurface {
         for segment in segments {
             // A class-typed field is a noun on the way to its verbs, exactly
             // as resolve_path walks it.
-            if !self.classes.get(&class)?.contains_key(segment) {
-                let ty = self.class_typed_fields.get(&class)?.get(segment)?;
-                if !self.classes.contains_key(ty) {
+            if self.class_field(&class, segment).is_none() {
+                let ty = self.class_typed_field(&class, segment)?;
+                if !self.known_class(ty) {
                     return None;
                 }
                 out.push('.');
@@ -771,7 +812,7 @@ impl TypeSurface {
                 class = ty.clone();
                 continue;
             }
-            let sig = self.classes.get(&class)?.get(segment)?;
+            let sig = self.class_field(&class, segment)?;
             out.push('.');
             out.push_str(segment);
             // Namespace or call, decided exactly as walk_class decides roles:
@@ -1451,5 +1492,25 @@ Policies.Pipeline()
             .unwrap()
             .contains_key("Protect"));
         assert!(!surface.classes.contains_key("(partial)"));
+    }
+
+    #[test]
+    fn a_global_typed_by_two_files_carries_both_classes_whatever_the_order() {
+        let actions = "---@meta actions\n---@class FlowStarted\n---@overload fun(): MissionCondition\n---@class FlowActions\n---@field Started FlowStarted\n---@type FlowActions\nMatchFlow = {}\n";
+        let policy = "---@meta policy trigger\n---@class PolicyFlow\n---@field Victory fun(team: table): MissionEffect\n---@type PolicyFlow\nMatchFlow = {}\n";
+        for sources in [[actions, policy], [policy, actions]] {
+            let surface = TypeSurface::parse(&sources);
+            assert!(
+                surface.resolve_path("MatchFlow.Started").is_some(),
+                "Started from the actions file"
+            );
+            assert!(
+                surface.resolve_path("MatchFlow.Victory").is_some(),
+                "Victory from the policy file"
+            );
+            let roles = surface.roles();
+            assert!(roles.conditions.iter().any(|c| c == "MatchFlow.Started"));
+            assert!(roles.effects.iter().any(|e| e == "MatchFlow.Victory"));
+        }
     }
 }
